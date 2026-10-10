@@ -1,5 +1,5 @@
 # Edition 3 — Cloud-Native
-# Official Arch packages. k3s/rancher install via airootfs hooks when enabled.
+# Official Arch packages only. k3s is not shipped (not in official repos).
 
 docker
 docker-compose

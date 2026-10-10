@@ -1,28 +1,19 @@
 #!/bin/bash
+# One-time welcome dialog on the live console (interactive login shells only).
 
-# Only run for interactive shells
-if [ -n "$PS1" ] && [ -z "$WARBLE_TUTORIAL_SEEN" ]; then
+if [ -n "$PS1" ] && [ -z "$WARBLE_TUTORIAL_SEEN" ] && [ -t 0 ] \
+   && command -v dialog >/dev/null 2>&1 && [ "$(tty)" = "/dev/tty1" ]; then
     export WARBLE_TUTORIAL_SEEN=1
-    
-    dialog --backtitle "Warble-Linux Sandbox OS" \
-           --title "Welcome to Warble-Linux" \
-           --msgbox "Welcome to the Warble-Linux Sandbox OS!\n\nThis is a privacy-focused, ephemeral learning environment.\nAll your data is currently stored in RAM and will be destroyed upon reboot." 10 60
-           
-    dialog --backtitle "Warble-Linux Sandbox OS" \
-           --title "Included Tools" \
-           --msgbox "You have access to the following tools:\n- Terminator (Your default terminal)\n- Neovim (Pre-configured for Dev)\n- K3s (Local Kubernetes)\n- Firefox (Restricted to localhost)\n- Rust, Go, Python, Node.js" 12 60
-           
-    dialog --backtitle "Warble-Linux Sandbox OS" \
-           --title "DevOps Exercises" \
-           --yesno "Would you like to open the DevOps exercises repository now?" 8 60
-           
-    response=$?
-    if [ $response -eq 0 ]; then
-        cd ~/devops-exercises || echo "Repo not found"
-        clear
-        echo "You are now in the devops-exercises directory. Happy learning!"
-    else
-        clear
-        echo "Enjoy your secure sandboxed environment!"
-    fi
+
+    tools="- Terminator, Firefox, Openbox (run 'startx')\n- git, vim, nano, curl"
+    command -v go >/dev/null 2>&1 && tools="$tools\n- Go, Rust, Python, Node.js, Neovim, tmux"
+    command -v docker >/dev/null 2>&1 && tools="$tools\n- Docker, docker-compose, kubectl, helm"
+
+    dialog --backtitle "Warble Linux live sandbox" \
+           --title "Welcome to Warble Linux" \
+           --msgbox "This is an ephemeral live sandbox.\n\nEverything you change lives in RAM and is gone after reboot.\n\nFirewall: inbound connections are blocked; outbound network access is allowed." 12 64
+    dialog --backtitle "Warble Linux live sandbox" \
+           --title "Included tools" \
+           --msgbox "$tools" 12 64
+    clear
 fi
