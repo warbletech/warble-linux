@@ -37,12 +37,15 @@ jobs:
       options: --privileged
     env:
       EDITION: ${{ github.event.inputs.edition || '1' }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Install build tools
         run: |
           pacman -Syu --noconfirm --needed \
             archiso grub mtools dosfstools libisoburn squashfs-tools nftables \
-            git make which tar gzip
+            mkinitcpio git make which tar gzip
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
