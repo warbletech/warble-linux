@@ -2,10 +2,14 @@
 # Optional: publish ISO to GCP Artifact Registry as an OCI artifact.
 # Requires: gcloud, docker, authenticated project access.
 # Not wired into CI by default — community / maintainer use.
+# Note: this publishes the ISO file as an OCI artifact for distribution; it is
+# not a bootable Compute Engine image.
+#
+# Usage: PROJECT_ID=<your-gcp-project> DRY_RUN=0 ./scripts/push-to-gcp.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJECT_ID="${PROJECT_ID:-warble-tech-prod}"
+PROJECT_ID="${PROJECT_ID:-}"   # required: no default project
 REPO_NAME="${REPO_NAME:-warble-os-releases}"
 LOCATION="${LOCATION:-us-central1}"
 IMAGE_NAME="${IMAGE_NAME:-warble-linux-iso}"
@@ -19,6 +23,7 @@ if [[ -z "$ISO_FILE" ]]; then
 fi
 
 if [[ "${DRY_RUN:-1}" == "1" ]]; then
+  PROJECT_ID="${PROJECT_ID:-<set PROJECT_ID>}"
   echo "DRY_RUN=1 (default): would publish $(basename "$ISO_FILE")"
   echo "  project=$PROJECT_ID repo=$REPO_NAME location=$LOCATION"
   echo "  tag=${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/${IMAGE_NAME}:${VERSION}"
@@ -26,6 +31,7 @@ if [[ "${DRY_RUN:-1}" == "1" ]]; then
   exit 0
 fi
 
+[[ -n "$PROJECT_ID" ]] || { echo "error: set PROJECT_ID=<your-gcp-project>" >&2; exit 1; }
 command -v gcloud >/dev/null || { echo "error: gcloud required" >&2; exit 1; }
 command -v docker >/dev/null || { echo "error: docker required" >&2; exit 1; }
 

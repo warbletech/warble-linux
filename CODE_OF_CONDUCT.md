@@ -46,7 +46,7 @@ an individual is officially representing the community in public spaces.
 ## Enforcement
 
 Report incidents to the maintainers via GitHub Security advisories or by
-contacting the org owners listed on [github.com/warble-tech](https://github.com/warble-tech).
+contacting the org owners listed on [github.com/warbletech](https://github.com/warbletech).
 
 All complaints will be reviewed and investigated promptly and fairly.
 

@@ -15,7 +15,7 @@ you control.
 
 Please **do not** open a public issue for security-sensitive reports.
 
-1. Prefer [GitHub Security Advisories](https://github.com/warble-tech/warble-linux/security/advisories/new) for this repository.
+1. Prefer [GitHub Security Advisories](https://github.com/warbletech/warble-linux/security/advisories/new) for this repository.
 2. Include: impact, affected edition/build, reproduction steps, and any suggested fix.
 
 We will acknowledge receipt as soon as practical and coordinate disclosure.

@@ -7,3 +7,16 @@ See LICENSE for the full text.
 Built images may bundle third-party software from Arch Linux and upstream
 projects, each under its own license. Those components are not relicensed
 by this project.
+
+Exception — vendored archiso bootloader configuration:
+  profile/syslinux/, profile/grub/ and profile/efiboot/ are adapted from the
+  Arch Linux archiso "releng" profile (https://gitlab.archlinux.org/archlinux/archiso)
+  and remain under the GNU General Public License, version 3 or later
+  (GPL-3.0-or-later). See profile/BOOTLOADERS.NOTICE. They are standalone
+  configuration files consumed by mkarchiso, not linked into GPL-2.0 code.
+
+Built ISO images bundle Arch Linux packages under their own licenses.
+Corresponding source for those packages is available from Arch Linux
+(https://gitlab.archlinux.org/archlinux/packaging/packages and
+https://archive.archlinux.org/), matching the package versions listed in each
+image's package manifest.

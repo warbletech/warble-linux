@@ -7,8 +7,8 @@
 **Sandbox-oriented Linux live images** for isolated testing, learning, and
 cloud-native workflows — open source, rebuildable, multi-format.
 
-[![Build & nightly](https://github.com/warble-tech/warble-linux/actions/workflows/publish.yml/badge.svg)](https://github.com/warble-tech/warble-linux/actions/workflows/publish.yml)
-[![Release](https://github.com/warble-tech/warble-linux/actions/workflows/release.yml/badge.svg)](https://github.com/warble-tech/warble-linux/actions/workflows/release.yml)
+[![Build & nightly](https://github.com/warbletech/warble-linux/actions/workflows/publish.yml/badge.svg)](https://github.com/warbletech/warble-linux/actions/workflows/publish.yml)
+[![Release](https://github.com/warbletech/warble-linux/actions/workflows/release.yml/badge.svg)](https://github.com/warbletech/warble-linux/actions/workflows/release.yml)
 [![License: GPL-2.0](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
 [![semver](https://img.shields.io/badge/semver-0.2.0-blue.svg)](VERSION)
 
@@ -20,13 +20,13 @@ Part of the Warble ecosystem · MCP ops demo: [mcp.warbleoss.org](https://mcp.wa
 
 | Kind | Tag | Trigger |
 |------|-----|---------|
-| **Stable** | `vX.Y.Z` | Tag push or [Release workflow](https://github.com/warble-tech/warble-linux/actions/workflows/release.yml) |
+| **Stable** | `vX.Y.Z` | Tag push or [Release workflow](https://github.com/warbletech/warble-linux/actions/workflows/release.yml) |
 | **Nightly** | `vX.Y.Z-nightly.N` | Push to `main` (GitHub prerelease) |
 
 | | |
 |--|--|
-| **Latest stable** | [Releases · Latest](https://github.com/warble-tech/warble-linux/releases/latest) |
-| **All releases** | [github.com/warble-tech/warble-linux/releases](https://github.com/warble-tech/warble-linux/releases) |
+| **Latest stable** | [Releases · Latest](https://github.com/warbletech/warble-linux/releases/latest) |
+| **All releases** | [github.com/warbletech/warble-linux/releases](https://github.com/warbletech/warble-linux/releases) |
 
 ```bash
 sha256sum -c SHA256SUMS-full-*.txt   # after download
@@ -65,7 +65,7 @@ Package sources of truth: [`editions/`](editions/). Details: [docs/editions.md](
 ## Quick start
 
 ```bash
-git clone https://github.com/warble-tech/warble-linux.git
+git clone https://github.com/warbletech/warble-linux.git
 cd warble-linux
 
 make bake EDITION=1       # one edition
@@ -146,5 +146,11 @@ We welcome issues and PRs. Start here:
 Warble Linux is free software under the **GNU General Public License v2.0**.
 See [LICENSE](LICENSE).
 
+Exception: the vendored archiso bootloader configs under `profile/syslinux/`,
+`profile/grub/` and `profile/efiboot/` are **GPL-3.0-or-later** (adapted from
+Arch Linux archiso releng). See [NOTICE](NOTICE) and
+[profile/BOOTLOADERS.NOTICE](profile/BOOTLOADERS.NOTICE).
+
 Third-party packages inside a built image remain under their own licenses
-(Arch Linux and upstream projects).
+(Arch Linux and upstream projects); see [NOTICE](NOTICE) for where to obtain
+their corresponding source.
