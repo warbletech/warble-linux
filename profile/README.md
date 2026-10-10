@@ -33,7 +33,7 @@ Requires: network (pacman mirrors), root/sudo for `mkarchiso`, ~10–20 GB fre
 ## Docker (optional)
 
 ```bash
-./scripts/docker-bake.sh EDITION=1
+EDITION=1 ./scripts/docker-bake.sh
 ```
 
 See [docs/building.md](../docs/building.md).

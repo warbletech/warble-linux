@@ -7,6 +7,11 @@ EDITION ?= 1
 MOCK_ONLY ?= 0
 export EDITION MOCK_ONLY
 
+# Catch the common typo `make edition=2`, which would silently build edition 1.
+ifdef edition
+$(error use upper-case EDITION=$(edition), e.g. `make bake EDITION=$(edition)`)
+endif
+
 help:
 	@echo "Warble Linux  $$(cat VERSION 2>/dev/null || echo '?')"
 	@echo ""

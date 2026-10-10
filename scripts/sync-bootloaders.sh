@@ -17,7 +17,7 @@ git -C "$TMP/archiso" sparse-checkout set \
   configs/releng/syslinux configs/releng/grub configs/releng/efiboot
 
 for d in syslinux grub efiboot; do
-  rm -rf "$DEST/$d"
+  rm -rf "${DEST:?}/${d:?}"
   cp -a "$TMP/archiso/configs/releng/$d" "$DEST/$d"
 done
 
