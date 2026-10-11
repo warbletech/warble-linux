@@ -178,7 +178,7 @@ t_vm() {
         sudo -n true && echo "sudo ok"
         sudo nft list chain inet filter input | tee /tmp/input.nft
         grep -qE "tcp dport (22|ssh) accept" /tmp/input.nft
-        findmnt / /boot
+        findmnt /; findmnt /boot
         systemctl is-system-running --wait || systemctl --failed --no-pager'; then
       result=ok
     else
