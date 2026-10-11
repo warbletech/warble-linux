@@ -86,6 +86,7 @@ def to_png(ppm, png):
         print(f"[shots] keeping PPM ({e})"); return ppm
 
 ANSI = re.compile(r"\x1b\[([0-9;]*)m")
+OSC = re.compile(r"\x1b\].*?(?:\x07|\x1b\\)", re.S)
 COLORS = {"30": (40, 40, 52), "31": (248, 113, 113), "32": (52, 211, 153), "33": (251, 191, 36),
           "34": (96, 165, 250), "35": (167, 139, 250), "36": (79, 195, 247), "37": (232, 232, 240)}
 
@@ -101,7 +102,8 @@ def render_terminal(text, png):
             font = ImageFont.truetype(f, 18); bold = ImageFont.truetype(f.replace("Mono.ttf", "Mono-Bold.ttf"), 18); break
     if font is None:
         font = bold = ImageFont.load_default()
-    lines = [re.sub(r"[\r\x07]|\x1b\[[0-9;?]*[A-HJKSTfhlr]|\x1b\][^\x07]*\x07?", "", l) for l in text.replace("\r\n", "\n").split("\n")]
+    text = OSC.sub("", text)  # e.g. systemd's OSC 3008 context markers
+    lines = [re.sub(r"[\r\x07]|\x1b\[[0-9;?]*[A-HJKSTfhlr]", "", l) for l in text.replace("\r\n", "\n").split("\n")]
     lines = lines[:60]
     cw, lh = 11, 24
     width = max(80, max((len(ANSI.sub("", l)) for l in lines), default=80)) * cw + 60
@@ -157,7 +159,7 @@ def main():
         motd = s.since(mk)
         open(os.path.join(out, "motd-serial.txt"), "w").write(motd)
         render_terminal(motd, os.path.join(out, "motd-terminal.png")); shots.append("motd-terminal.png")
-        print("----- MOTD (serial) -----"); print(ANSI.sub("", motd))
+        print("----- MOTD (serial) -----"); print(ANSI.sub("", OSC.sub("", motd)))
 
         # tty1: dismiss the 2 welcome dialogs so the MOTD is visible, then dump
         for _ in range(2):
