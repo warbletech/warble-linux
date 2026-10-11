@@ -89,6 +89,16 @@ BASE_PKG="$EDITIONS_DIR/base.packages"
 
 log "Wrote $(grep -cve '^#' -e '^$' "$PKG_FILE" || true) packages → profile/packages.x86_64"
 
+# Edition identity for the live system (MOTD, default wallpaper). Generated, gitignored.
+mkdir -p "$PROFILE_DIR/airootfs/etc"
+{
+  echo "ID=warble-linux"
+  echo "NAME=\"Warble Linux\""
+  echo "VERSION=$VERSION"
+  echo "VARIANT=$ENAME"
+  echo "EDITION=$EDITION"
+} > "$PROFILE_DIR/airootfs/etc/warble-release"
+
 # ── Build ISO ────────────────────────────────────────────────────────────────
 rm -rf "$WORK_DIR"
 mkdir -p "$OUT_DIR" "$WORK_DIR"

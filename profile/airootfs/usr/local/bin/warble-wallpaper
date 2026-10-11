@@ -1,0 +1,12 @@
+#!/bin/sh
+# Set the Warble Linux wallpaper for this edition (read from /etc/warble-release).
+#   warble-wallpaper            dark wallpaper for this edition
+#   WARBLE_THEME=light warble-wallpaper
+#   warble-wallpaper <file>     any image
+dir=/usr/share/backgrounds/warble
+variant=minimal
+[ -r /etc/warble-release ] && variant=$(sed -n 's/^VARIANT=//p' /etc/warble-release)
+theme=${WARBLE_THEME:-dark}
+img=${1:-$dir/warble-linux-${variant}-${theme}-2560x1440.png}
+[ -f "$img" ] || img=$dir/warble-linux-minimal-dark-2560x1440.png
+exec feh --no-fehbg --bg-fill "$img"
