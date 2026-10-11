@@ -117,9 +117,23 @@ jobs:
       ref: ${{ needs.prepare.outputs.sha }}
       artifact-name: release-iso-${{ matrix.edition }}
 
+  images:
+    name: images edition ${{ matrix.edition }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: ["1", "2", "3", "4"]
+    uses: ./.github/workflows/images.yml
+    with:
+      edition: ${{ matrix.edition }}
+      version: ${{ needs.prepare.outputs.artifact_version }}
+      ref: ${{ needs.prepare.outputs.sha }}
+      artifact-prefix: release
+
   publish:
     name: GitHub Release ${{ needs.prepare.outputs.tag }}
-    needs: [prepare, real]
+    needs: [prepare, real, images]
     # Run even if some editions failed: only passing editions are published.
     if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-24.04
@@ -147,7 +161,23 @@ jobs:
           pattern: bootok-release-iso-*
           merge-multiple: true
 
+      - name: Download WSL / Vagrant / OVA images
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: img
+          pattern: images-release-*
+          merge-multiple: true
+
+      - name: Download image test markers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ok
+          pattern: imgok-release-*
+          merge-multiple: true
+
       - name: Verify (real only, < 2 GiB, checksums) and assemble assets
+        env:
+          AV: ${{ needs.prepare.outputs.artifact_version }}
         run: |
           set -euo pipefail
           mkdir -p release-assets
@@ -180,15 +210,39 @@ jobs:
             grep -qx "$e" published.txt || grep -qx "$e" skipped.txt || echo "$e" >> skipped.txt   # build failed: no artifact
           done
           compgen -G 'release-assets/*.iso' >/dev/null || { echo "::error::no edition passed build + boot — nothing to publish"; exit 1; }
-          (cd release-assets && sha256sum -- *.iso MANIFEST-*.txt > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+          # WSL / Vagrant / OVA: publish an image only if its CI test passed.
+          : > images-published.txt; : > images-skipped.txt
+          names=([1]=minimal [2]=developer [3]=cloud-native [4]=full)
+          if compgen -G 'img/SHA256SUMS-images-*.txt' >/dev/null; then
+            (cd img && cat SHA256SUMS-images-*.txt | sha256sum -c)
+          fi
+          for e in 1 2 3 4; do
+            n=${names[$e]}
+            wsl="img/warble-linux-wsl2-${n}-${AV}.tar.gz"
+            if [[ -f "ok/img-ok-${e}-wsl.txt" && -f "$wsl" ]]; then
+              cp "$wsl" release-assets/; echo "$(basename "$wsl")" >> images-published.txt
+            else
+              echo "${n}: WSL" >> images-skipped.txt
+            fi
+            box="img/warble-linux-${n}-${AV}-libvirt.box"; ova="img/warble-linux-${n}-${AV}.ova"
+            if [[ -f "ok/img-ok-${e}-vm-bios.txt" && -f "ok/img-ok-${e}-vm-uefi.txt" && -f "$box" && -f "$ova" ]]; then
+              cp "$box" "$ova" release-assets/; basename -a "$box" "$ova" >> images-published.txt
+            else
+              echo "${n}: Vagrant/OVA" >> images-skipped.txt
+            fi
+          done
+          for f in release-assets/*; do
+            (( $(stat -c%s "$f") < 2 * 1024 * 1024 * 1024 )) || { echo "::error::$f exceeds 2 GiB"; exit 1; }
+          done
+          (cd release-assets && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt)
           ls -la release-assets/
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: |
-            release-assets/*.iso
-            release-assets/SHA256SUMS.txt
+          # Every published file (ISOs, MANIFESTs, tested WSL/Vagrant/OVA images)
+          subject-checksums: release-assets/SHA256SUMS.txt
 
       - name: Write release notes
         env:
@@ -210,6 +264,17 @@ jobs:
             done
             echo ""
             echo "Only editions that built **and** booted on BIOS and UEFI are published."
+            if [[ -s images-published.txt ]]; then
+              echo ""
+              echo "### WSL2 / Vagrant / OVA images (tested in CI)"
+              echo "WSL rootfs: tar checks + \`docker import\` smoke test. Vagrant box: booted in QEMU (BIOS + UEFI) and reached over SSH as \`vagrant\`. OVA: same disk as the box; structure/checksums verified, **not** boot-tested in VirtualBox."
+              echo ""
+              sed 's/^/- `/; s/$/`/' images-published.txt
+            fi
+            if [[ -s images-skipped.txt ]]; then
+              echo ""
+              echo "Images not published this time (build or test failed): $(paste -sd, images-skipped.txt)"
+            fi
             if [[ -s skipped.txt ]]; then
               echo "Not published this time (failed build or boot): edition(s) $(sort -u skipped.txt | tr '\n' ' ')"
             fi
@@ -222,7 +287,18 @@ jobs:
             echo ""
             echo "### Disposable sandbox"
             echo '```bash'
+            echo "# ISO (live, nothing persists): create/use, then quit QEMU to destroy"
             echo "qemu-system-x86_64 -enable-kvm -m 2048 -cdrom warble-linux-minimal-${AV}-*.iso -boot d -snapshot -nic user"
+            echo ""
+            echo "# WSL2 (PowerShell): create, use, destroy"
+            echo "wsl --import warble-sbx \$env:LOCALAPPDATA\\warble-sbx .\\warble-linux-wsl2-minimal-${AV}.tar.gz --version 2"
+            echo "wsl -d warble-sbx"
+            echo "wsl --unregister warble-sbx"
+            echo ""
+            echo "# Vagrant (libvirt): create, use, destroy"
+            echo "vagrant box add --name warble/minimal warble-linux-minimal-${AV}-libvirt.box"
+            echo "vagrant init warble/minimal && vagrant up --provider=libvirt && vagrant ssh"
+            echo "vagrant destroy -f && vagrant box remove warble/minimal"
             echo '```'
             if [[ -f CHANGELOG.md ]]; then
               echo ""
