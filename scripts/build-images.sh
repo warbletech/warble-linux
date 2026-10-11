@@ -35,6 +35,7 @@ case "$EDITION" in
 esac
 [[ $EUID -eq 0 ]] || die "must run as root (pacstrap)"
 mkdir -p "$OUT_DIR" "$WORK_DIR"
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"   # absolute: later steps cd elsewhere
 
 # Packages that only make sense on the live ISO / bare metal.
 ISO_ONLY=(mkinitcpio-archiso squashfs-tools memtest86+ memtest86+-efi edk2-shell syslinux amd-ucode intel-ucode)
