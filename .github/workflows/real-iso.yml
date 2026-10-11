@@ -164,7 +164,7 @@ jobs:
           result=timeout
           for ((t = 0; t < limit; t += 5)); do
             sleep 5
-            if grep -qE 'Kernel panic|emergency shell|You are now being dropped|ERROR: .*device did not show up' serial.log 2>/dev/null; then
+            if grep -qE 'Kernel panic|emergency shell|You are now being dropped|ERROR: .*device did not show up|Please configure the system' serial.log 2>/dev/null; then
               result=failed; break
             fi
             if grep -qE 'login:' serial.log 2>/dev/null; then
