@@ -1,2 +1,5 @@
-# Run Firefox with DuckDuckGo on startup
+# Warble Linux Openbox autostart
+# Edition wallpaper (dark by default; WARBLE_THEME=light for the light set)
+/usr/local/bin/warble-wallpaper &
+# Firefox with DuckDuckGo
 firefox "https://duckduckgo.com" &

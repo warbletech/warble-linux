@@ -6,6 +6,8 @@
 #   scripts/test.sh wsl  <wsl.tar.gz>           tar structure + docker import + smoke commands
 #   scripts/test.sh vm   <libvirt.box> <bios|uefi>  boot box disk in QEMU, SSH as vagrant, checks
 #   scripts/test.sh ova  <file.ova>             OVA layout, manifest checksums, VMDK format
+#   scripts/test.sh iso-shots <iso> [shots_dir] serial MOTD capture + screendumps (console,
+#                                               desktop with wallpaper) via scripts/qemu-shots.py
 #   scripts/test.sh all  [out_dir]              every test above for everything in out_dir
 #
 # Every sandbox is disposable: QEMU runs with -snapshot (image never modified)
@@ -25,7 +27,7 @@ SSH_PORT="${SSH_PORT:-2222}"
 
 log() { printf '[test] %s\n' "$*"; }
 die() { printf '[test] FAIL: %s\n' "$*" >&2; exit 1; }
-usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 need() { local c; for c in "$@"; do command -v "$c" >/dev/null || die "missing tool: $c"; done; }
 mkdir -p "$OK_DIR" "$LOG_DIR"
 
@@ -210,6 +212,15 @@ t_ova() {
   log "PASS ova $(basename "$ova")"
 }
 
+t_iso_shots() {
+  local iso="$1" dir="${2:-$ROOT_DIR/out/shots}"
+  need qemu-system-x86_64 python3
+  [[ -f "$iso" ]] || die "no such ISO: $iso"
+  mkdir -p "$dir"
+  python3 "$ROOT_DIR/scripts/qemu-shots.py" "$iso" "$dir" || die "screenshot capture failed"
+  log "PASS iso-shots -> $dir"; ls -la "$dir"
+}
+
 t_all() {
   local out="${1:-$ROOT_DIR/out}" f fw rc=0
   shopt -s nullglob
@@ -229,6 +240,7 @@ t_all() {
 case "${1:-}" in
   iso-verify) t_iso_verify "${2:?iso}" ;;
   iso) t_iso "${2:?iso}" "${3:?bios|uefi}" ;;
+  iso-shots) t_iso_shots "${2:?iso}" "${3:-}" ;;
   wsl) t_wsl "${2:?wsl tarball}" ;;
   vm) t_vm "${2:?box}" "${3:?bios|uefi}" ;;
   ova) t_ova "${2:?ova}" ;;
