@@ -26,24 +26,34 @@ Triggers: push/`main`, pull_request, workflow_dispatch.
 
 ### Release — `.github/workflows/release.yml`
 
-Publishes **only real, boot-tested ISOs**. Flow: resolve version → for each
-published edition call `real-iso.yml` (mkarchiso + QEMU BIOS/UEFI boot test) →
-verify `mock=no`, size < 2 GiB and checksums → attest provenance → upload
-ISO + MANIFEST + `SHA256SUMS.txt` to the release (Latest for stable tags).
-WSL / OVF / Vagrant stubs are never uploaded.
+Publishes **only real, boot-tested ISOs**. Flow: resolve version → build and
+boot-test **every edition (1–4)** via `real-iso.yml` (mkarchiso + QEMU BIOS/UEFI
+boot test; build fails if an ISO is ≥ 1.9 GiB) → `publish` runs even if some
+editions failed and uploads only editions with `mock=no`, valid checksums and
+**both** boot-success markers → attest provenance → upload ISO + MANIFEST +
+`SHA256SUMS.txt` (Latest for stable tags). Skipped editions are listed in the
+release notes; the release fails if no edition passed. Stubs are never uploaded.
 
-Real editions published today: **1 (minimal)**, ~1.6 GB. Add more to the
-`real` job matrix only after they build, stay under 2 GiB and boot in CI.
+Sizes after the VM-first size cuts (CI, 2026-10-11; GitHub asset limit 2 GiB,
+CI guard 1.9 GiB):
 
-| Edition | Real build | Boot (BIOS/UEFI) | ISO size | Published |
-|---------|-----------|------------------|----------|-----------|
-| 1 minimal | yes | yes / yes | ~1.6 GB | **yes** |
-| 4 full | yes (2026-10-11 test) | yes / yes | 2,093,498,368 B (1.95 GiB) | no — only ~51 MiB under the 2 GiB asset limit; one package update could break the release |
-| 2 developer, 3 cloud-native | not yet tested (subsets of 4) | — | — | no |
+| Edition | ISO size | Boot BIOS / UEFI | Run |
+|---------|----------|------------------|-----|
+| 1 minimal | 803,549,184 B (766 MiB) | yes / yes | [38105445405](https://github.com/warbletech/warble-linux/actions/runs/38105445405) |
+| 2 developer | 1,085,308,928 B (1035 MiB) | yes / yes | [38105446911](https://github.com/warbletech/warble-linux/actions/runs/38105446911) |
+| 3 cloud-native | 909,455,360 B (867 MiB) | yes / yes | [38105448327](https://github.com/warbletech/warble-linux/actions/runs/38105448327) |
+| 4 full | 1,189,707,776 B (1135 MiB) | yes / yes | [38105450072](https://github.com/warbletech/warble-linux/actions/runs/38105450072) |
 
-To publish 2–4: shrink the image (e.g. drop `linux-firmware` sub-packages not
-needed in VMs, stronger squashfs options) or split assets, then extend the
-matrix and re-run a dry run.
+Before the size cuts, edition 1 was 1,691,418,624 B and edition 4 was 2,093,498,368 B.
+
+**Size cuts:**
+- The images are VM-first: there is no `linux-firmware`, so bare-metal Wi-Fi and GPUs that need firmware won't work.
+- No GRUB: UEFI boots via systemd-boot and BIOS via syslinux.
+- No PXE/netboot initramfs hooks.
+- `NoExtract` drops docs, man/info pages and translations.
+- squashfs already uses the strongest archiso setting (`xz -Xbcj x86 -b 1M`), so compression is unchanged.
+
+The CI guard is `MAX_ISO_BYTES` in `real-iso.yml`.
 
 Triggers:
 
