@@ -1,0 +1,200 @@
+name: WSL + Vagrant/OVF images
+
+# Build -> test pipeline for the secondary images of one edition. Every stage
+# calls the same scripts you run locally (docs/local-testing.md):
+#   build : scripts/build.sh images <ed>   (privileged Arch container) + scripts/test.sh ova
+#   test  : scripts/test.sh wsl / scripts/test.sh vm <box> bios|uefi
+# Artifacts are handed between stages; publish (release.yml) is gated on markers.
+#   wsl : tar structure + `docker import` + smoke commands (systemd-less)
+#   vm  : boot the Vagrant box disk in QEMU (BIOS and UEFI), SSH in as
+#         `vagrant` with Vagrant's insecure key, run checks, destroy the VM
+# Each passing test uploads an `imgok-<prefix>-<test>` marker; release.yml only
+# publishes an image whose markers exist. Not a required check (path-filtered).
+on:
+  pull_request:
+    paths:
+      - "scripts/build-images.sh"
+      - "scripts/build.sh"
+      - "scripts/test.sh"
+      - "images/**"
+      - "editions/**"
+      - "profile/pacman.conf"
+      - "profile/airootfs/etc/nftables.conf"
+      - ".github/workflows/images.yml"
+  workflow_dispatch:
+    inputs:
+      edition:
+        description: "Edition (1=minimal 2=developer 3=cloud-native 4=full)"
+        type: choice
+        options: ["1", "2", "3", "4"]
+        default: "1"
+  workflow_call:
+    inputs:
+      edition:
+        type: string
+        default: "1"
+      version:
+        type: string
+        default: ""
+      ref:
+        type: string
+        default: ""
+      artifact-prefix:
+        description: "Prefix for uploaded artifacts (images-<prefix>, imgok-<prefix>-*)"
+        type: string
+        default: "ci"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ github.workflow }}-${{ github.ref }}-${{ inputs.edition || '1' }}
+  cancel-in-progress: true
+
+env:
+  EDITION: ${{ inputs.edition || '1' }}
+  PREFIX: ${{ inputs.artifact-prefix || 'ci' }}
+
+jobs:
+  build:
+    name: build images edition ${{ inputs.edition || '1' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    container:
+      image: archlinux:base-20261004.0.606936
+      options: --privileged
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install git (for checkout)
+        run: pacman -Sy --noconfirm --needed git
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Install build tools (scripts/build.sh deps)
+        run: scripts/build.sh deps
+
+      - name: Build WSL rootfs, Vagrant box and OVA (scripts/build.sh images)
+        env:
+          VERSION: ${{ inputs.version || format('ci-{0}', github.run_number) }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          df -h / /tmp
+          scripts/build.sh images "$EDITION"
+          df -h / /tmp
+
+      - name: Check OVA (scripts/test.sh ova)
+        run: |
+          set -euo pipefail
+          scripts/test.sh ova "$(ls out/*.ova)"
+          {
+            echo "| edition ${EDITION} asset | bytes | MiB |"
+            echo "|---|---|---|"
+            for f in out/*.tar.gz out/*.box out/*.ova; do
+              s=$(stat -c%s "$f"); echo "| $(basename "$f") | $s | $((s / 1024 / 1024)) |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload images
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: images-${{ env.PREFIX }}-${{ env.EDITION }}
+          path: |
+            out/*.tar.gz
+            out/*.box
+            out/*.ova
+            out/SHA256SUMS-images-*.txt
+          if-no-files-found: error
+          retention-days: 5
+          compression-level: 0
+
+  wsl:
+    name: WSL rootfs test
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Download images
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: images-${{ env.PREFIX }}-${{ env.EDITION }}
+          path: out
+
+      - name: Verify checksums
+        run: cd out && sha256sum -c --ignore-missing SHA256SUMS-images-*.txt
+
+      - name: Tar structure + docker import smoke test (scripts/test.sh wsl)
+        env:
+          OK_DIR: ok
+        run: scripts/test.sh wsl "$(ls out/warble-linux-wsl2-*.tar.gz)"
+
+      - name: Upload marker
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: imgok-${{ env.PREFIX }}-${{ env.EDITION }}-wsl
+          path: ok/img-ok-*.txt
+          retention-days: 5
+
+  vm:
+    name: Vagrant box SSH test (${{ matrix.firmware }})
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        firmware: [bios, uefi]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Download images
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: images-${{ env.PREFIX }}-${{ env.EDITION }}
+          path: out
+
+      - name: Install QEMU (+ OVMF) and enable KVM
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86 qemu-utils ovmf >/dev/null
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+
+      - name: Boot, SSH as vagrant, destroy (scripts/test.sh vm)
+        env:
+          OK_DIR: ok
+          LOG_DIR: logs
+        run: scripts/test.sh vm "$(ls out/*-libvirt.box)" "${{ matrix.firmware }}"
+
+      - name: Upload marker
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: imgok-${{ env.PREFIX }}-${{ env.EDITION }}-vm-${{ matrix.firmware }}
+          path: ok/img-ok-*.txt
+          retention-days: 5
+
+      - name: Upload serial log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vm-serial-${{ env.PREFIX }}-${{ env.EDITION }}-${{ matrix.firmware }}
+          path: logs/*.log
+          if-no-files-found: ignore
+          retention-days: 7

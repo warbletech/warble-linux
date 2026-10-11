@@ -67,11 +67,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Install build tools
-        run: |
-          pacman -Syu --noconfirm --needed \
-            archiso grub mtools dosfstools libisoburn squashfs-tools nftables \
-            mkinitcpio git make which tar gzip
+      - name: Install git (for checkout)
+        run: pacman -Sy --noconfirm --needed git
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,47 +76,27 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
+      - name: Install build tools (scripts/build.sh deps)
+        run: scripts/build.sh deps
+
       - name: Validate firewall ruleset
         run: nft -c -f profile/airootfs/etc/nftables.conf
 
-      - name: Bake real ISO (no mock allowed)
+      - name: Build real ISO (scripts/build.sh iso)
         env:
-          REQUIRE_REAL: "1"
-          MOCK_ONLY: "0"
           VERSION: ${{ inputs.version || format('ci-{0}', github.run_number) }}
           WORK_DIR: /tmp/warble-linux-work
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          GIT_SHA="$(git rev-parse --short=7 HEAD)"
-          export GIT_SHA
           df -h / /tmp
-          make bake EDITION="$EDITION"
-          ls -la out/
+          scripts/build.sh iso "$EDITION"
           df -h / /tmp
 
-      - name: Verify the ISO is real and has the archiso initramfs hook
+      - name: Verify ISO (scripts/test.sh iso-verify)
         run: |
           set -euo pipefail
           iso=$(find out -maxdepth 1 -name 'warble-linux-*.iso' | head -1)
-          man=$(find out -maxdepth 1 -name 'MANIFEST-*.txt' | head -1)
-          test -n "$iso" && test -n "$man"
-          cat "$man"
-          grep -qx 'mock=no' "$man" || { echo "::error::MANIFEST does not say mock=no"; exit 1; }
-          size=$(stat -c%s "$iso")
-          echo "ISO size: $size bytes"
-          (( size > 200 * 1024 * 1024 )) || { echo "::error::ISO too small to be real ($size bytes)"; exit 1; }
-          # Size guard: GitHub release assets must be < 2 GiB; fail well before.
-          max=${MAX_ISO_BYTES:-2040109465}   # 1.9 GiB
-          echo "| edition ${EDITION} | $(basename "$iso") | ${size} B | $(( size / 1024 / 1024 )) MiB | limit ${max} B |" >> "$GITHUB_STEP_SUMMARY"
-          if (( size >= max )); then
-            echo "::error::ISO is $size bytes, over the ${max}-byte guard (GitHub release limit is 2 GiB)"; exit 1
-          fi
-          xorriso -indev "$iso" -ls /arch/boot/x86_64/ 2>/dev/null | tee /tmp/bootfiles.txt
-          grep -q vmlinuz-linux /tmp/bootfiles.txt
-          grep -q initramfs-linux.img /tmp/bootfiles.txt
-          xorriso -osirrox on -indev "$iso" -extract /arch/boot/x86_64/initramfs-linux.img /tmp/initramfs.img >/dev/null 2>&1
-          lsinitcpio /tmp/initramfs.img | grep -E '^hooks/archiso$' \
-            || { echo "::error::initramfs lacks the archiso hook (image would not boot)"; exit 1; }
+          scripts/test.sh iso-verify "$iso"
           (cd out && sha256sum "$(basename "$iso")" > SHA256SUMS-real-iso.txt && cat SHA256SUMS-real-iso.txt)
 
       - name: Upload ISO
@@ -150,6 +127,12 @@ jobs:
       matrix:
         firmware: [bios, uefi]
     steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
       - name: Download ISO
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -169,64 +152,20 @@ jobs:
           sudo udevadm trigger --name-match=kvm || true
           ls -l /dev/kvm || true
 
-      - name: Boot headless and wait for login prompt
+      - name: Boot headless to login prompt (scripts/test.sh iso)
         env:
           FIRMWARE: ${{ matrix.firmware }}
+          OK_DIR: ok
+          LOG_DIR: logs
         run: |
-          set -euo pipefail
           iso=$(find out -maxdepth 1 -name 'warble-linux-*.iso' | head -1)
-          accel=tcg; limit=1200
-          if [[ -w /dev/kvm ]]; then accel=kvm; limit=600; fi
-          fw=()
-          if [[ "$FIRMWARE" == "uefi" ]]; then
-            code=""; vars_src=""
-            for f in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
-              [[ -f "$f" ]] && { code="$f"; break; }
-            done
-            for f in /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd; do
-              [[ -f "$f" ]] && { vars_src="$f"; break; }
-            done
-            [[ -n "$code" && -n "$vars_src" ]] || { echo "::error::OVMF firmware not found"; ls -l /usr/share/OVMF || true; exit 1; }
-            cp "$vars_src" /tmp/ovmf_vars.fd
-            fw=(-drive "if=pflash,format=raw,readonly=on,file=$code" -drive "if=pflash,format=raw,file=/tmp/ovmf_vars.fd")
-          fi
-          echo "accel=$accel firmware=$FIRMWARE timeout=${limit}s iso=$iso"
-          # Disposable sandbox: no disk, -snapshot, user-mode NIC; destroyed by kill.
-          timeout --kill-after=15 "$((limit + 30))" \
-          qemu-system-x86_64 -accel "$accel" -m 2048 -smp 2 "${fw[@]}" \
-            -cdrom "$iso" -boot d -snapshot -nic user,model=virtio-net-pci \
-            -display none -monitor none -serial file:serial.log &
-          qpid=$!
-          result=timeout
-          for ((t = 0; t < limit; t += 5)); do
-            sleep 5
-            if grep -qE 'Kernel panic|emergency shell|You are now being dropped|ERROR: .*device did not show up|Please configure the system' serial.log 2>/dev/null; then
-              result=failed; break
-            fi
-            if grep -qE 'login:' serial.log 2>/dev/null; then
-              result=ok; break
-            fi
-            kill -0 "$qpid" 2>/dev/null || { result=exited; break; }
-          done
-          # Tear down the sandbox (SIGTERM, then SIGKILL)
-          kill "$qpid" 2>/dev/null || true
-          for _ in 1 2 3 4 5; do kill -0 "$qpid" 2>/dev/null || break; sleep 1; done
-          kill -9 "$qpid" 2>/dev/null || true
-          pkill -9 -f qemu-system-x86_64 2>/dev/null || true
-          wait "$qpid" 2>/dev/null || true
-          echo "----- serial console (tail) -----"
-          tail -n 60 serial.log || true
-          echo "boot result: $result after ~${t}s"
-          [[ "$result" == ok ]]
-
-      - name: Record boot success
-        run: echo "edition=${{ inputs.edition || '1' }} firmware=${{ matrix.firmware }} boot=ok" > "boot-ok-${{ inputs.edition || '1' }}-${{ matrix.firmware }}.txt"
+          scripts/test.sh iso "$iso" "$FIRMWARE"
 
       - name: Upload boot-success marker
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bootok-${{ inputs.artifact-name || 'real-iso' }}-${{ matrix.firmware }}
-          path: boot-ok-*.txt
+          path: ok/boot-ok-*.txt
           retention-days: 5
 
       - name: Upload serial log
@@ -234,6 +173,6 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: serial-log-${{ inputs.edition || '1' }}-${{ matrix.firmware }}
-          path: serial.log
+          path: logs/*.log
           if-no-files-found: ignore
           retention-days: 7

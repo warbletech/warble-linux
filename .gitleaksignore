@@ -1,0 +1,4 @@
+# gitleaks false positives (documentation prose, not secrets). The offending
+# wording was removed in later commits; these fingerprints only cover history.
+b5ee835879b63872bbedba27f4ee651e68fe3069:docs/releases.md:generic-api-key:83
+65252310c3f69bfafe2e8eec8d951e42bd0db4e4:.gitleaksignore:generic-api-key:1
