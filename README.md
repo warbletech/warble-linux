@@ -63,6 +63,16 @@ Package sources of truth: [`editions/`](editions/). Details: [docs/editions.md](
 
 ## Quick start
 
+**Build → test → publish locally, exactly like CI.** See [docs/local-testing.md](docs/local-testing.md).
+
+```bash
+make build EDITION=1 DOCKER=1   # real ISO + WSL rootfs + Vagrant box + OVA -> out/ (privileged Arch container)
+make test                       # QEMU BIOS/UEFI ISO boot, WSL docker-import smoke, Vagrant box SSH, OVA checks
+make publish                    # dry run: assemble only tested assets (DRAFT=1 -> draft release)
+```
+
+Mock/CI helpers:
+
 ```bash
 git clone https://github.com/warbletech/warble-linux.git
 cd warble-linux

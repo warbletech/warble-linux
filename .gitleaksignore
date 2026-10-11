@@ -1,0 +1,3 @@
+# False positive (prose, not a secret): "insecure key, sudo/firewall/mount checks"
+# in docs/releases.md matched generic-api-key. Line reworded in the next commit.
+b5ee835879b63872bbedba27f4ee651e68fe3069:docs/releases.md:generic-api-key:83
