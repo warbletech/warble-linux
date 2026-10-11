@@ -1,0 +1,269 @@
+name: WSL + Vagrant/OVF images
+
+# Builds REAL secondary images for one edition (scripts/build-images.sh) and
+# tests them before anything can publish them:
+#   wsl : tar structure + `docker import` + smoke commands (systemd-less)
+#   vm  : boot the Vagrant box disk in QEMU (BIOS and UEFI), SSH in as
+#         `vagrant` with Vagrant's insecure key, run checks, destroy the VM
+# Each passing test uploads an `imgok-<prefix>-<test>` marker; release.yml only
+# publishes an image whose markers exist. Not a required check (path-filtered).
+on:
+  pull_request:
+    paths:
+      - "scripts/build-images.sh"
+      - "images/**"
+      - "editions/**"
+      - "profile/pacman.conf"
+      - "profile/airootfs/etc/nftables.conf"
+      - ".github/workflows/images.yml"
+  workflow_dispatch:
+    inputs:
+      edition:
+        description: "Edition (1=minimal 2=developer 3=cloud-native 4=full)"
+        type: choice
+        options: ["1", "2", "3", "4"]
+        default: "1"
+  workflow_call:
+    inputs:
+      edition:
+        type: string
+        default: "1"
+      version:
+        type: string
+        default: ""
+      ref:
+        type: string
+        default: ""
+      artifact-prefix:
+        description: "Prefix for uploaded artifacts (images-<prefix>, imgok-<prefix>-*)"
+        type: string
+        default: "ci"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ github.workflow }}-${{ github.ref }}-${{ inputs.edition || '1' }}
+  cancel-in-progress: true
+
+env:
+  EDITION: ${{ inputs.edition || '1' }}
+  PREFIX: ${{ inputs.artifact-prefix || 'ci' }}
+  # Vagrant's insecure private key (ed25519), same pinned commit as the box's authorized_keys
+  VAGRANT_KEY_URL: https://raw.githubusercontent.com/hashicorp/vagrant/dc55920a284544919340b975098b4ac9005b08b0/keys/vagrant.key.ed25519
+
+jobs:
+  build:
+    name: build images edition ${{ inputs.edition || '1' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    container:
+      image: archlinux:base-20261004.0.606936
+      options: --privileged
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install tools
+        run: |
+          pacman -Syu --noconfirm --needed arch-install-scripts dosfstools mtools \
+            e2fsprogs syslinux qemu-img libarchive curl git util-linux
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Build WSL rootfs, Vagrant box and OVA
+        env:
+          VERSION: ${{ inputs.version || format('ci-{0}', github.run_number) }}
+        run: |
+          set -euo pipefail
+          df -h / /tmp
+          ./scripts/build-images.sh "$EDITION" all out
+          ls -la out
+          df -h / /tmp
+
+      - name: Check OVA structure
+        run: |
+          set -euo pipefail
+          ova=$(ls out/*.ova)
+          bsdtar -tf "$ova" | tee /tmp/ova.txt
+          head -1 /tmp/ova.txt | grep -q '\.ovf$' || { echo "::error::OVF descriptor must be the first OVA entry"; exit 1; }
+          mkdir /tmp/ova && bsdtar -xf "$ova" -C /tmp/ova
+          (cd /tmp/ova && sed -E 's/^SHA256\((.*)\)= (.*)$/\2  \1/' ./*.mf | sha256sum -c)
+          qemu-img info /tmp/ova/*.vmdk | tee /dev/stderr | grep -q 'create type: streamOptimized'
+          {
+            echo "| edition ${EDITION} | asset | bytes | MiB |"
+            echo "|---|---|---|---|"
+            for f in out/*.tar.gz out/*.box out/*.ova; do
+              s=$(stat -c%s "$f"); echo "| | $(basename "$f") | $s | $((s / 1024 / 1024)) |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload images
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: images-${{ env.PREFIX }}-${{ env.EDITION }}
+          path: |
+            out/*.tar.gz
+            out/*.box
+            out/*.ova
+            out/SHA256SUMS-images-*.txt
+          if-no-files-found: error
+          retention-days: 5
+          compression-level: 0
+
+  wsl:
+    name: WSL rootfs test
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Download images
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: images-${{ env.PREFIX }}-${{ env.EDITION }}
+          path: out
+
+      - name: Tar structure
+        run: |
+          set -euo pipefail
+          cd out && sha256sum -c --ignore-missing SHA256SUMS-images-*.txt && cd ..
+          t=$(ls out/warble-linux-wsl2-*.tar.gz)
+          tar -tzf "$t" > list.txt
+          wc -l list.txt
+          for p in ./etc/wsl.conf ./etc/os-release ./usr/bin/bash ./usr/lib/systemd/systemd ./etc/sudoers.d/10-warble; do
+            grep -qx "$p" list.txt || { echo "::error::missing $p"; exit 1; }
+          done
+          if grep -E '^\./boot/.+|vmlinuz' list.txt; then echo "::error::WSL rootfs must not contain a kernel"; exit 1; fi
+          tar -xzOf "$t" ./etc/wsl.conf | tee wsl.conf
+          grep -qx 'systemd=true' wsl.conf && grep -qx 'default=warble' wsl.conf
+
+      - name: docker import + smoke commands
+        run: |
+          set -euo pipefail
+          t=$(ls out/warble-linux-wsl2-*.tar.gz)
+          docker import "$t" warble-wsl:ci
+          docker run --rm --user warble warble-wsl:ci bash -lc '
+            set -e
+            cat /etc/warble-release
+            id
+            sudo -n true && echo "sudo ok"
+            pacman -Q | wc -l
+            test ! -e /boot/vmlinuz-linux
+            command -v git curl
+          '
+          docker image rm warble-wsl:ci
+
+      - name: Record success
+        run: echo "edition=$EDITION wsl=ok" > "img-ok-${EDITION}-wsl.txt"
+
+      - name: Upload marker
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: imgok-${{ env.PREFIX }}-${{ env.EDITION }}-wsl
+          path: img-ok-*.txt
+          retention-days: 5
+
+  vm:
+    name: Vagrant box SSH test (${{ matrix.firmware }})
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        firmware: [bios, uefi]
+    steps:
+      - name: Download images
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: images-${{ env.PREFIX }}-${{ env.EDITION }}
+          path: out
+
+      - name: Install QEMU (+ OVMF) and enable KVM
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86 qemu-utils ovmf >/dev/null
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+
+      - name: Unpack box
+        run: |
+          set -euo pipefail
+          box=$(ls out/*-libvirt.box)
+          mkdir box && tar -xf "$box" -C box
+          cat box/metadata.json
+          python3 -c 'import json,sys; m=json.load(open("box/metadata.json")); assert m["provider"]=="libvirt" and m["format"]=="qcow2", m'
+          qemu-img info box/box.img
+          curl -fsSL "$VAGRANT_KEY_URL" -o vagrant_key && chmod 600 vagrant_key
+
+      - name: Boot, SSH as vagrant, destroy
+        env:
+          FIRMWARE: ${{ matrix.firmware }}
+        run: |
+          set -euo pipefail
+          accel=tcg; limit=900
+          if [[ -w /dev/kvm ]]; then accel=kvm; limit=420; fi
+          fw=()
+          if [[ "$FIRMWARE" == "uefi" ]]; then
+            code=""; vars_src=""
+            for f in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do [[ -f "$f" ]] && { code="$f"; break; }; done
+            for f in /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd; do [[ -f "$f" ]] && { vars_src="$f"; break; }; done
+            cp "$vars_src" /tmp/ovmf_vars.fd
+            fw=(-drive "if=pflash,format=raw,readonly=on,file=$code" -drive "if=pflash,format=raw,file=/tmp/ovmf_vars.fd")
+          fi
+          # Disposable: -snapshot (no writes to the image), user NIC, SSH forwarded to 2222
+          timeout --kill-after=15 "$((limit + 60))" \
+          qemu-system-x86_64 -accel "$accel" -m 2048 -smp 2 "${fw[@]}" \
+            -drive file=box/box.img,if=virtio,format=qcow2 -snapshot \
+            -nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2222-:22 \
+            -display none -monitor none -serial file:serial.log &
+          qpid=$!
+          ssh_opts=(-i vagrant_key -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes)
+          result=timeout
+          for ((t = 0; t < limit; t += 5)); do
+            sleep 5
+            if grep -qE 'Kernel panic|emergency shell|You are now being dropped' serial.log 2>/dev/null; then result=failed; break; fi
+            kill -0 "$qpid" 2>/dev/null || { result=exited; break; }
+            if ssh "${ssh_opts[@]}" vagrant@127.0.0.1 true 2>/dev/null; then result=ssh; break; fi
+          done
+          if [[ "$result" == ssh ]]; then
+            ssh "${ssh_opts[@]}" vagrant@127.0.0.1 'set -e
+              cat /etc/warble-release; uname -r; id
+              sudo -n true && echo "sudo ok"
+              sudo nft list ruleset | grep -q "tcp dport 22 accept"
+              findmnt / /boot
+              systemctl is-system-running --wait || systemctl --failed --no-pager
+              ' && result=ok || result=checks-failed
+          fi
+          kill "$qpid" 2>/dev/null || true
+          for _ in 1 2 3 4 5; do kill -0 "$qpid" 2>/dev/null || break; sleep 1; done
+          kill -9 "$qpid" 2>/dev/null || true
+          wait "$qpid" 2>/dev/null || true
+          echo "----- serial console (tail) -----"; tail -n 60 serial.log || true
+          echo "result: $result after ~${t}s"
+          [[ "$result" == ok ]]
+
+      - name: Record success
+        run: echo "edition=$EDITION vm=${{ matrix.firmware }} ok" > "img-ok-${EDITION}-vm-${{ matrix.firmware }}.txt"
+
+      - name: Upload marker
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: imgok-${{ env.PREFIX }}-${{ env.EDITION }}-vm-${{ matrix.firmware }}
+          path: img-ok-*.txt
+          retention-days: 5
+
+      - name: Upload serial log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vm-serial-${{ env.PREFIX }}-${{ env.EDITION }}-${{ matrix.firmware }}
+          path: serial.log
+          if-no-files-found: ignore
+          retention-days: 7
