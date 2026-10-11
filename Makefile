@@ -1,5 +1,5 @@
 # Warble Linux — developer entry points
-# https://github.com/warble-tech/warble-linux
+# https://github.com/warbletech/warble-linux
 
 .PHONY: help bake all-editions clean mock lint check test-artifacts release-check sync-bootloaders version bump-patch bump-minor bump-major
 

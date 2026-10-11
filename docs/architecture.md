@@ -85,7 +85,7 @@ Install it manually inside a sandbox if needed (see https://docs.k3s.io).
 Omarchy is a full opinionated Arch desktop. Warble Linux is a **separate
 product**: ephemeral sandbox images and multi-format packaging. It may live as
 a sibling checkout under a monorepo for convenience, but it has its own git
-remote (`warble-tech/warble-linux`) and release cycle.
+remote (`warbletech/warble-linux`) and release cycle.
 
 ## Status
 

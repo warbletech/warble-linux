@@ -7,7 +7,7 @@ features.
 ## Development setup
 
 ```bash
-git clone https://github.com/warble-tech/warble-linux.git
+git clone https://github.com/warbletech/warble-linux.git
 cd warble-linux
 make check          # lint + mock build (edition 1)
 ```
