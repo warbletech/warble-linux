@@ -1,6 +1,6 @@
 name: Build & nightly
 
-# GitHub-hosted public runners only (ubuntu-latest). No self-hosted runners.
+# GitHub-hosted public runners only (ubuntu-24.04, pinned). No self-hosted runners.
 # Nightly prereleases use semver: vX.Y.Z-nightly.N (from VERSION file).
 on:
   push:
@@ -19,7 +19,7 @@ concurrency:
 jobs:
   version:
     name: resolve version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       semver: ${{ steps.v.outputs.semver }}
       nightly_tag: ${{ steps.v.outputs.nightly_tag }}
@@ -41,7 +41,7 @@ jobs:
   bake:
     name: edition ${{ matrix.edition }}
     needs: version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -83,7 +83,7 @@ jobs:
   test-matrix:
     name: test all artifacts
     needs: [version, bake]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -105,7 +105,7 @@ jobs:
     name: semver nightly prerelease
     needs: [version, bake, test-matrix]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write       # create the prerelease
       id-token: write       # provenance attestation
@@ -156,7 +156,7 @@ jobs:
             | **Artifact version** | `${{ needs.version.outputs.artifact_version }}` |
             | **Commit** | `${{ github.sha }}` |
             | **Editions** | 1 minimal · 2 developer · 3 cloud-native · 4 full |
-            | **Runner** | GitHub-hosted `ubuntu-latest` |
+            | **Runner** | GitHub-hosted `ubuntu-24.04` |
 
             Assets: ISO · WSL tarball · OVF · Vagrant `.box` · MANIFEST · SHA256SUMS.
 

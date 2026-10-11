@@ -10,7 +10,7 @@ cloud-native workflows — open source, rebuildable, multi-format.
 [![Build & nightly](https://github.com/warbletech/warble-linux/actions/workflows/publish.yml/badge.svg)](https://github.com/warbletech/warble-linux/actions/workflows/publish.yml)
 [![Release](https://github.com/warbletech/warble-linux/actions/workflows/release.yml/badge.svg)](https://github.com/warbletech/warble-linux/actions/workflows/release.yml)
 [![License: GPL-2.0](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
-[![semver](https://img.shields.io/badge/semver-0.2.0-blue.svg)](VERSION)
+[![semver](https://img.shields.io/badge/semver-0.3.0-blue.svg)](VERSION)
 
 Part of the Warble ecosystem · MCP ops demo: [mcp.warbleoss.org](https://mcp.warbleoss.org)
 
@@ -20,8 +20,8 @@ Part of the Warble ecosystem · MCP ops demo: [mcp.warbleoss.org](https://mcp.wa
 
 | Kind | Tag | Trigger |
 |------|-----|---------|
-| **Stable** | `vX.Y.Z` | Tag push or [Release workflow](https://github.com/warbletech/warble-linux/actions/workflows/release.yml) |
-| **Nightly** | `vX.Y.Z-nightly.N` | Push to `main` (GitHub prerelease) |
+| **Stable** | `vX.Y.Z` | Tag push → [Release workflow](https://github.com/warbletech/warble-linux/actions/workflows/release.yml): real ISO, boot-tested, provenance-attested |
+| **Nightly** | `vX.Y.Z-nightly.N` | Push to `main` (prerelease, **mock** artifacts) |
 
 | | |
 |--|--|
@@ -29,13 +29,12 @@ Part of the Warble ecosystem · MCP ops demo: [mcp.warbleoss.org](https://mcp.wa
 | **All releases** | [github.com/warbletech/warble-linux/releases](https://github.com/warbletech/warble-linux/releases) |
 
 ```bash
-sha256sum -c SHA256SUMS-full-*.txt   # after download
+sha256sum -c SHA256SUMS.txt --ignore-missing          # after download
+gh attestation verify warble-linux-*.iso -R warbletech/warble-linux
 
-# Maintainers — cut a stable release
-make bump-patch
-git add VERSION && git commit -m "chore(release): v$(cat VERSION)"
-git tag "v$(cat VERSION)" && git push origin main --tags
-# or: gh workflow run release.yml -f bump=patch
+# Maintainers — cut a stable release (see docs/releases.md)
+make bump-minor            # in a PR; main is protected
+git tag -a "v$(cat VERSION)" -m "Warble Linux v$(cat VERSION)" && git push origin "v$(cat VERSION)"
 ```
 
 ---
@@ -101,14 +100,14 @@ out/          # build products (gitignored)
 
 ## CI
 
-GitHub-hosted **`ubuntu-latest`** only (no self-hosted runners). All actions are
+GitHub-hosted **`ubuntu-24.04`** only (pinned) (no self-hosted runners). All actions are
 pinned to full commit SHAs; workflow tokens are read-only except on publish jobs.
 
 | Workflow | What it does |
 |----------|--------------|
 | [`real-iso.yml`](.github/workflows/real-iso.yml) | **Real** `mkarchiso` build of edition 1 in a privileged Arch container (fails on mock), then a headless QEMU boot test (BIOS + UEFI) that waits for a serial `login:` prompt. Provenance attested on `main`. |
 | [`publish.yml`](.github/workflows/publish.yml) | Matrix bake of editions 1–4, artifact tests, nightly prerelease on `main` (labeled **MOCK** when built without `mkarchiso`). |
-| [`release.yml`](.github/workflows/release.yml) | Stable releases; mock assets are labeled, marked prerelease and never set as Latest. |
+| [`release.yml`](.github/workflows/release.yml) | Stable releases on `vX.Y.Z` tags: real ISO(s) via `real-iso.yml`, boot-tested, provenance-attested; mock artifacts are never published. Dispatch `dry_run` → draft release. |
 | [`gitleaks.yml`](.github/workflows/gitleaks.yml) | Secret scan of the full git history on every push/PR. |
 
 Verify a downloaded artifact: `sha256sum -c SHA256SUMS-*.txt` and

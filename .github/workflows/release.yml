@@ -1,32 +1,32 @@
 name: Release
 
-# Stable semver releases: tag vX.Y.Z or dispatch with bump/set.
-# GitHub-hosted ubuntu-latest only.
+# Publishes REAL, boot-tested ISOs only. Mock artifacts are never published here.
+#
+#   1. prepare  : resolve version/tag (tag push vX.Y.Z must match VERSION)
+#   2. real     : reusable real-iso.yml per edition — mkarchiso in a privileged
+#                 Arch container (REQUIRE_REAL=1), then QEMU BIOS + UEFI boot
+#                 test to a serial login prompt
+#   3. publish  : verify mock=no + size < 2 GiB + checksums, attest provenance,
+#                 upload ISO + MANIFEST + SHA256SUMS to the GitHub Release
+#
+# Triggers:
+#   - push tag vX.Y.Z (stable, Latest) or vX.Y.Z-rc.N (prerelease)
+#   - workflow_dispatch with dry_run=true (default) from any branch: builds,
+#     boot-tests and uploads to a DRAFT release named dryrun-<run_id>; nothing
+#     is tagged. Delete the draft afterwards.
+# Version bumps happen in a PR (make bump-minor); main is protected.
+# GitHub-hosted ubuntu-24.04 only.
 on:
   push:
     tags:
       - 'v*.*.*'
   workflow_dispatch:
     inputs:
-      bump:
-        description: "Bump VERSION then tag (ignored if version is set)"
-        type: choice
-        options:
-          - none
-          - patch
-          - minor
-          - major
-        default: patch
-      version:
-        description: "Exact semver X.Y.Z (optional; overrides bump when set)"
-        required: false
-        default: ""
-      prerelease:
-        description: "Mark GitHub Release as prerelease"
+      dry_run:
+        description: "Dry run: publish to a DRAFT release (no tag)"
         type: boolean
-        default: false
+        default: true
 
-# Least privilege: read-only by default; write only on the jobs that publish.
 permissions:
   contents: read
 
@@ -37,207 +37,174 @@ concurrency:
 jobs:
   prepare:
     name: prepare version & tag
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write       # dispatch path commits VERSION and pushes the tag
+    runs-on: ubuntu-24.04
     outputs:
       semver: ${{ steps.prep.outputs.semver }}
       tag: ${{ steps.prep.outputs.tag }}
       artifact_version: ${{ steps.prep.outputs.artifact_version }}
+      draft: ${{ steps.prep.outputs.draft }}
+      prerelease: ${{ steps.prep.outputs.prerelease }}
+      sha: ${{ steps.prep.outputs.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
       - name: Resolve version
         id: prep
         env:
-          INPUT_BUMP: ${{ github.event.inputs.bump || 'none' }}
-          INPUT_VERSION: ${{ github.event.inputs.version || '' }}
           REF_NAME: ${{ github.ref_name }}
           EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           chmod +x scripts/version.sh
-
-          if [[ "$EVENT_NAME" == "push" && "$REF_NAME" == v* ]]; then
-            # Tag push: v1.2.3 or v1.2.3-rc.1 → strip leading v for VERSION file style base
+          FILE_SEMVER=$(./scripts/version.sh print | tr -d '\n')
+          if [[ "$EVENT_NAME" == "push" ]]; then
             TAG="$REF_NAME"
-            # Stable X.Y.Z only for VERSION file; keep full tag for release
-            if [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            if [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-[0-9A-Za-z.]+)?$ ]]; then
               SEMVER="${BASH_REMATCH[1]}"
-              echo "$SEMVER" > VERSION
-            elif [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+-.+)$ ]]; then
-              SEMVER="${BASH_REMATCH[1]}"
+              PRE="${BASH_REMATCH[2]}"
             else
-              echo "error: tag must be vX.Y.Z or vX.Y.Z-prerelease" >&2
-              exit 1
+              echo "::error::tag must be vX.Y.Z or vX.Y.Z-prerelease (got $TAG)"; exit 1
+            fi
+            if [[ "$SEMVER" != "$FILE_SEMVER" ]]; then
+              echo "::error::tag $TAG does not match VERSION file ($FILE_SEMVER); bump VERSION via PR first"; exit 1
             fi
             ARTIFACT_VERSION="${TAG#v}"
+            DRAFT=false
+            if [[ -n "$PRE" ]]; then PRERELEASE=true; else PRERELEASE=false; fi
           else
-            # workflow_dispatch
-            if [[ -n "$INPUT_VERSION" ]]; then
-              ./scripts/version.sh set "$INPUT_VERSION"
-            elif [[ "$INPUT_BUMP" != "none" ]]; then
-              ./scripts/version.sh bump "$INPUT_BUMP"
+            if [[ "$DRY_RUN" != "true" ]]; then
+              echo "::error::non-dry-run releases are created by pushing a vX.Y.Z tag"; exit 1
             fi
-            SEMVER=$(./scripts/version.sh print | tr -d '\n')
-            TAG="v${SEMVER}"
-            ARTIFACT_VERSION="$SEMVER"
-
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add VERSION
-            if ! git diff --cached --quiet; then
-              git commit -m "chore(release): ${TAG}"
-              git push origin HEAD:main
-            fi
-            # Create annotated tag if missing
-            if git rev-parse "$TAG" >/dev/null 2>&1; then
-              echo "Tag $TAG already exists — releasing that ref"
-            else
-              git tag -a "$TAG" -m "Release ${TAG}"
-              git push origin "$TAG"
-            fi
+            SEMVER="$FILE_SEMVER"
+            TAG="dryrun-${RUN_ID}"
+            ARTIFACT_VERSION="${FILE_SEMVER}-dryrun.${RUN_ID}"
+            DRAFT=true
+            PRERELEASE=true
           fi
+          {
+            echo "semver=$SEMVER"
+            echo "tag=$TAG"
+            echo "artifact_version=$ARTIFACT_VERSION"
+            echo "draft=$DRAFT"
+            echo "prerelease=$PRERELEASE"
+            echo "sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG artifact_version=$ARTIFACT_VERSION draft=$DRAFT prerelease=$PRERELEASE"
+        shell: bash
 
-          echo "semver=$SEMVER" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "artifact_version=$ARTIFACT_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Resolved tag=$TAG artifact_version=$ARTIFACT_VERSION"
-
-  bake:
-    name: edition ${{ matrix.edition }}
+  real:
+    name: real ISO edition ${{ matrix.edition }}
     needs: prepare
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        edition: [1, 2, 3, 4]
-    steps:
-      - name: Checkout tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.prepare.outputs.tag }}
-
-      - name: Install tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq genisoimage xorriso make || true
-
-      - name: Make and bake
-        env:
-          EDITION: ${{ matrix.edition }}
-          VERSION: ${{ needs.prepare.outputs.artifact_version }}
-          # GIT_SHA left unset: make-and-bake uses the checked-out tag's commit
-          MOCK_ONLY: "0"
-        run: |
-          chmod +x scripts/*.sh make-and-bake.sh
-          make bake EDITION="${{ matrix.edition }}"
-          ls -la out/
-          find out -type f -size 0 -print -exec false {} +
-
-      - name: Upload workflow artifacts
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-edition-${{ matrix.edition }}-${{ needs.prepare.outputs.tag }}
-          path: out/*
-          if-no-files-found: error
-          retention-days: 30
-
-  test-matrix:
-    name: test all artifacts
-    needs: [prepare, bake]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.prepare.outputs.tag }}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          path: out
-          pattern: release-edition-*
-          merge-multiple: true
-      - run: |
-          chmod +x scripts/test-artifacts.sh
-          OUT_DIR="$PWD/out" ./scripts/test-artifacts.sh
+        # Editions published as real, boot-tested ISOs. Add an edition only after
+        # it builds, stays < 2 GiB and boots in CI (see docs/releases.md).
+        edition: ["1"]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/real-iso.yml
+    with:
+      edition: ${{ matrix.edition }}
+      version: ${{ needs.prepare.outputs.artifact_version }}
+      ref: ${{ needs.prepare.outputs.sha }}
+      artifact-name: release-iso-${{ matrix.edition }}
 
   publish:
     name: GitHub Release ${{ needs.prepare.outputs.tag }}
-    needs: [prepare, bake, test-matrix]
-    runs-on: ubuntu-latest
+    needs: [prepare, real]
+    runs-on: ubuntu-24.04
     permissions:
       contents: write       # create the GitHub Release
       id-token: write       # provenance attestation
       attestations: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare.outputs.tag }}
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
 
-      - name: Download assets
+      - name: Download boot-tested ISOs
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: release-assets
-          pattern: release-edition-*
-          merge-multiple: true
+          path: dl
+          pattern: release-iso-*
 
-      - name: Guard non-empty assets
+      - name: Verify (real only, < 2 GiB, checksums) and assemble assets
         run: |
-          find release-assets -type f | sort
-          find release-assets -type f -size 0 -print -exec false {} +
+          set -euo pipefail
+          mkdir -p release-assets
+          # One artifact downloads flat into dl/, several into dl/<name>/:
+          # locate each edition's directory via its MANIFEST.
+          mapfile -t mans < <(find dl -name 'MANIFEST-*.txt' | sort)
+          (( ${#mans[@]} > 0 )) || { echo "::error::no MANIFEST found in downloaded artifacts"; find dl; exit 1; }
+          for m in "${mans[@]}"; do
+            d=$(dirname "$m")
+            (cd "$d" && sha256sum -c SHA256SUMS-real-iso.txt)
+            man=$(find "$d" -maxdepth 1 -name 'MANIFEST-*.txt' | head -1)
+            iso=$(find "$d" -maxdepth 1 -name 'warble-linux-*.iso' | head -1)
+            [[ -n "$man" && -n "$iso" ]] || { echo "::error::missing ISO or MANIFEST in $d"; exit 1; }
+            grep -qx 'mock=no' "$man" || { echo "::error::$man is not mock=no — refusing to publish"; exit 1; }
+            size=$(stat -c%s "$iso")
+            (( size < 2 * 1024 * 1024 * 1024 )) || { echo "::error::$(basename "$iso") is $size bytes (GitHub limit 2 GiB)"; exit 1; }
+            echo "$(basename "$iso"): $size bytes"
+            cp "$iso" "$man" release-assets/
+          done
+          (cd release-assets && sha256sum -- *.iso MANIFEST-*.txt > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          ls -la release-assets/
 
-      - name: Detect mock artifacts
-        id: kind
-        run: |
-          # Never present mock artifacts as a real release: label them, keep them
-          # out of "Latest", and mark the release as a prerelease.
-          if grep -l '^mock=yes' release-assets/MANIFEST-*.txt >/dev/null 2>&1; then
-            echo "mock=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::Release assets are MOCK (not bootable); publishing as labeled prerelease"
-          else
-            echo "mock=false" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release-assets/*.iso
+            release-assets/SHA256SUMS.txt
 
       - name: Write release notes
         env:
-          IS_MOCK: ${{ steps.kind.outputs.mock }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          AV: ${{ needs.prepare.outputs.artifact_version }}
+          SEMVER: ${{ needs.prepare.outputs.semver }}
+          REPO: ${{ github.repository }}
         run: |
           {
-            echo "## Warble Linux ${{ needs.prepare.outputs.tag }}"
+            echo "## Warble Linux ${TAG}"
             echo ""
-            if [[ "$IS_MOCK" == "true" ]]; then
-              echo "> [!WARNING]"
-              echo "> **MOCK artifacts — not bootable.** These assets were produced without mkarchiso."
-              echo "> Use the ISO from the \"Real ISO build + boot\" workflow for an actual sandbox."
-              echo ""
-            fi
-            echo "Semver **${{ needs.prepare.outputs.artifact_version }}** · editions 1–4"
+            echo "Real live ISO(s) built with \`mkarchiso\` and **boot-tested in CI** (QEMU, BIOS + UEFI, serial login prompt) before upload."
             echo ""
-            echo "| Artifact | Description |"
-            echo "|----------|-------------|"
-            echo "| \`*.iso\` | Live image (mock on Ubuntu CI without mkarchiso) |"
-            echo "| \`*-wsl2-*.tar.gz\` | WSL-style rootfs tarball |"
-            echo "| \`*.ovf\` / \`*.box\` | OVF stub / Vagrant box stub |"
-            echo "| \`MANIFEST-*\` / \`SHA256SUMS-*\` | Build metadata + checksums |"
+            echo "| Edition | Asset |"
+            echo "|---------|-------|"
+            for f in release-assets/*.iso; do
+              b=$(basename "$f"); e=$(echo "$b" | sed -E "s/^warble-linux-(.*)-${AV}-.*/\1/")
+              echo "| ${e} | \`${b}\` ($(( $(stat -c%s "$f") / 1024 / 1024 )) MiB) |"
+            done
             echo ""
-            echo "Verify:"
+            echo "Only the editions listed above are published as real ISOs. WSL / OVF / Vagrant outputs are still stubs and are **not** included."
+            echo ""
+            echo "### Verify"
             echo '```bash'
-            echo "sha256sum -c SHA256SUMS-full-${{ needs.prepare.outputs.artifact_version }}.txt"
-            echo "gh attestation verify <file> -R ${{ github.repository }}"
+            echo "sha256sum -c SHA256SUMS.txt --ignore-missing"
+            echo "gh attestation verify warble-linux-*.iso -R ${REPO}"
             echo '```'
             echo ""
-            echo "Rebuild: \`VERSION=${{ needs.prepare.outputs.artifact_version }} make release-check\`"
+            echo "### Disposable sandbox"
+            echo '```bash'
+            echo "qemu-system-x86_64 -enable-kvm -m 2048 -cdrom warble-linux-minimal-${AV}-*.iso -boot d -snapshot -nic user"
+            echo '```'
             if [[ -f CHANGELOG.md ]]; then
               echo ""
               echo "### Changelog"
               echo ""
-              # Extract section for this version if present
-              awk -v ver="${{ needs.prepare.outputs.semver }}" '
-                $0 ~ "^## \\[" ver "\\]" {p=1; print; next}
+              awk -v ver="$SEMVER" '
+                $0 ~ "^## \\[" ver "\\]" {p=1; next}
                 p && $0 ~ /^## \[/ {exit}
                 p {print}
               ' CHANGELOG.md || true
@@ -245,21 +212,17 @@ jobs:
           } > release-body.md
           cat release-body.md
 
-      - name: Attest build provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: release-assets/*
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
-          name: "Warble Linux ${{ needs.prepare.outputs.tag }}${{ steps.kind.outputs.mock == 'true' && ' (MOCK, not bootable)' || '' }}"
+          target_commitish: ${{ needs.prepare.outputs.sha }}
+          name: "Warble Linux ${{ needs.prepare.outputs.tag }}"
           body_path: release-body.md
           files: release-assets/*
-          prerelease: ${{ steps.kind.outputs.mock == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease == 'true') }}
-          generate_release_notes: true
+          draft: ${{ needs.prepare.outputs.draft == 'true' }}
+          prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.prepare.outputs.draft != 'true' && needs.prepare.outputs.prerelease != 'true' }}
           fail_on_unmatched_files: true
-          make_latest: ${{ steps.kind.outputs.mock != 'true' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease == 'true') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

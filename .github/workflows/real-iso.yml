@@ -4,6 +4,11 @@ name: Real ISO build + boot
 # Arch container, then boots it headless in QEMU (BIOS and UEFI) and waits for a
 # login prompt on the serial console. Fails on mock output or a failed boot.
 # GitHub-hosted runners only. Read-only token except the provenance step.
+#
+# Also a reusable workflow: release.yml calls it (workflow_call) per edition so a
+# release only ever publishes ISOs that were really built AND boot-tested.
+# Job names stay "mkarchiso edition N" / "boot smoke test (bios|uefi)" — they are
+# required status checks on main; rename only together with branch protection.
 on:
   push:
     branches: [main]
@@ -15,18 +20,38 @@ on:
         type: choice
         options: ["1", "2", "3", "4"]
         default: "1"
+  workflow_call:
+    inputs:
+      edition:
+        description: "Edition to build (1-4)"
+        type: string
+        default: "1"
+      version:
+        description: "Version string for artifact names (default ci-<run_number>)"
+        type: string
+        default: ""
+      ref:
+        description: "Git ref to build (default: the triggering ref)"
+        type: string
+        default: ""
+      artifact-name:
+        description: "Name of the uploaded ISO artifact"
+        type: string
+        default: "real-iso"
 
 permissions:
   contents: read
 
 concurrency:
-  group: warble-linux-real-iso-${{ github.ref }}
+  # github.workflow is the caller's name under workflow_call, so release runs
+  # (one call per edition) never cancel each other or PR runs.
+  group: real-iso-${{ github.workflow }}-${{ github.ref }}-${{ inputs.edition || '1' }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: mkarchiso edition ${{ github.event.inputs.edition || '1' }}
-    runs-on: ubuntu-latest
+    name: mkarchiso edition ${{ inputs.edition || '1' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 75
     permissions:
       contents: read
@@ -36,7 +61,8 @@ jobs:
       image: archlinux:base-20261004.0.606936
       options: --privileged
     env:
-      EDITION: ${{ github.event.inputs.edition || '1' }}
+      EDITION: ${{ inputs.edition || '1' }}
+      ARTIFACT_NAME: ${{ inputs.artifact-name || 'real-iso' }}
     defaults:
       run:
         shell: bash
@@ -50,6 +76,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Validate firewall ruleset
@@ -59,13 +86,16 @@ jobs:
         env:
           REQUIRE_REAL: "1"
           MOCK_ONLY: "0"
-          VERSION: ci-${{ github.run_number }}
+          VERSION: ${{ inputs.version || format('ci-{0}', github.run_number) }}
           WORK_DIR: /tmp/warble-linux-work
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          export GIT_SHA="${GITHUB_SHA::7}"
+          GIT_SHA="$(git rev-parse --short=7 HEAD)"
+          export GIT_SHA
+          df -h / /tmp
           make bake EDITION="$EDITION"
           ls -la out/
+          df -h / /tmp
 
       - name: Verify the ISO is real and has the archiso initramfs hook
         run: |
@@ -78,6 +108,10 @@ jobs:
           size=$(stat -c%s "$iso")
           echo "ISO size: $size bytes"
           (( size > 200 * 1024 * 1024 )) || { echo "::error::ISO too small to be real ($size bytes)"; exit 1; }
+          # GitHub release assets must be < 2 GiB
+          if (( size >= 2 * 1024 * 1024 * 1024 )); then
+            echo "::warning::ISO is $size bytes (>= 2 GiB): too large for a GitHub release asset"
+          fi
           xorriso -indev "$iso" -ls /arch/boot/x86_64/ 2>/dev/null | tee /tmp/bootfiles.txt
           grep -q vmlinuz-linux /tmp/bootfiles.txt
           grep -q initramfs-linux.img /tmp/bootfiles.txt
@@ -89,7 +123,7 @@ jobs:
       - name: Upload ISO
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: real-iso
+          name: ${{ env.ARTIFACT_NAME }}
           path: |
             out/*.iso
             out/MANIFEST-*.txt
@@ -107,7 +141,7 @@ jobs:
   boot:
     name: boot smoke test (${{ matrix.firmware }})
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -117,7 +151,7 @@ jobs:
       - name: Download ISO
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: real-iso
+          name: ${{ inputs.artifact-name || 'real-iso' }}
           path: out
 
       - name: Verify checksum
@@ -187,7 +221,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: serial-log-${{ matrix.firmware }}
+          name: serial-log-${{ inputs.edition || '1' }}-${{ matrix.firmware }}
           path: serial.log
           if-no-files-found: ignore
           retention-days: 7

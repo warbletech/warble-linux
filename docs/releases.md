@@ -26,23 +26,41 @@ Triggers: push/`main`, pull_request, workflow_dispatch.
 
 ### Release — `.github/workflows/release.yml`
 
+Publishes **only real, boot-tested ISOs**. Flow: resolve version → for each
+published edition call `real-iso.yml` (mkarchiso + QEMU BIOS/UEFI boot test) →
+verify `mock=no`, size < 2 GiB and checksums → attest provenance → upload
+ISO + MANIFEST + `SHA256SUMS.txt` to the release (Latest for stable tags).
+WSL / OVF / Vagrant stubs are never uploaded.
+
+Real editions published today: **1 (minimal)**, ~1.6 GB. Add more to the
+`real` job matrix only after they build, stay under 2 GiB and boot in CI.
+
+| Edition | Real build | Boot (BIOS/UEFI) | ISO size | Published |
+|---------|-----------|------------------|----------|-----------|
+| 1 minimal | yes | yes / yes | ~1.6 GB | **yes** |
+| 4 full | yes (2026-10-11 test) | yes / yes | 2,093,498,368 B (1.95 GiB) | no — only ~51 MiB under the 2 GiB asset limit; one package update could break the release |
+| 2 developer, 3 cloud-native | not yet tested (subsets of 4) | — | — | no |
+
+To publish 2–4: shrink the image (e.g. drop `linux-firmware` sub-packages not
+needed in VMs, stronger squashfs options) or split assets, then extend the
+matrix and re-run a dry run.
+
 Triggers:
 
-- Push tag matching `v*.*.*`
-- Manual **workflow_dispatch** with:
-  - `bump`: `none` | `patch` | `minor` | `major`
-  - `version`: exact `X.Y.Z` (optional)
-  - `prerelease`: boolean
-
-Dispatch flow bumps `VERSION`, commits, tags `vX.Y.Z`, bakes all editions,
-tests, publishes a GitHub Release (latest).
+- Push tag `vX.Y.Z` (must equal `VERSION`) → stable release, marked Latest.
+  `vX.Y.Z-rc.N` → prerelease.
+- `workflow_dispatch` with `dry_run=true` (from any branch) → same build and
+  boot test, uploads to a **draft** release `dryrun-<run_id>`; nothing is
+  tagged. Delete the draft afterwards.
 
 ```bash
-# CLI
-gh workflow run release.yml -f bump=patch
-gh workflow run release.yml -f version=1.0.0
-# or local tag
-git tag v0.2.0 && git push origin v0.2.0
+# 1. bump VERSION in a PR (main is protected), merge it
+make bump-minor            # 0.2.0 -> 0.3.0, commit + PR
+# 2. tag the merged commit on main
+git checkout main && git pull
+git tag -a v0.3.0 -m "Warble Linux v0.3.0" && git push origin v0.3.0
+# dry run from a branch
+gh workflow run release.yml --ref <branch> -f dry_run=true
 ```
 
 ### Real ISO — `.github/workflows/real-iso.yml`
@@ -55,9 +73,9 @@ provenance on `main`.
 
 ### Mock labeling
 
-`publish.yml` / `release.yml` still bake on Ubuntu without `mkarchiso`. When
-any MANIFEST says `mock=yes`, the release title is suffixed **(MOCK, not
-bootable)**, it is marked prerelease, and it is never set as Latest.
+`publish.yml` (nightly) still bakes mock artifacts on Ubuntu without
+`mkarchiso`; those prereleases are titled **(MOCK artifacts, not bootable)**
+and are never set as Latest. `release.yml` never publishes mock artifacts.
 
 ## Artifact names
 
