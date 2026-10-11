@@ -236,7 +236,8 @@ jobs:
             ssh "${ssh_opts[@]}" vagrant@127.0.0.1 'set -e
               cat /etc/warble-release; uname -r; id
               sudo -n true && echo "sudo ok"
-              sudo nft list ruleset | grep -q "tcp dport 22 accept"
+              sudo nft list chain inet filter input | tee /tmp/input.nft
+              grep -qE "tcp dport (22|ssh) accept" /tmp/input.nft
               findmnt / /boot
               systemctl is-system-running --wait || systemctl --failed --no-pager
               ' && result=ok || result=checks-failed
