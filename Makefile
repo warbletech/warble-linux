@@ -7,11 +7,7 @@ EDITION ?= 1
 MOCK_ONLY ?= 0
 WHAT ?= all          # build: iso | images | all
 DOCKER ?= 0          # build: 1 = run inside the pinned privileged Arch container
-DRAFT ?= 0           # demo:
-	@test -n "$(ISO)" || { echo 'usage: make demo ISO=path/to/warble-linux-<edition>-*.iso'; exit 2; }
-	scripts/demo/record.sh "$(ISO)" demo-out
-
-publish: 1 = upload to a DRAFT release (default: dry run)
+DRAFT ?= 0           # publish: 1 = upload to a DRAFT release (default: dry run)
 export EDITION MOCK_ONLY
 
 # Catch the common typo `make edition=2`, which would silently build edition 1.
@@ -115,6 +111,10 @@ build:
 
 test:
 	./scripts/test.sh all out
+
+demo:
+	@test -n "$(ISO)" || { echo 'usage: make demo ISO=path/to/warble-linux-<edition>-*.iso'; exit 2; }
+	scripts/demo/record.sh "$(ISO)" demo-out
 
 publish:
 	./scripts/publish.sh --dist out --ok out/ok $(if $(filter 1,$(DRAFT)),--draft-release,)
