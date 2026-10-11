@@ -32,8 +32,18 @@ verify `mock=no`, size < 2 GiB and checksums → attest provenance → upload
 ISO + MANIFEST + `SHA256SUMS.txt` to the release (Latest for stable tags).
 WSL / OVF / Vagrant stubs are never uploaded.
 
-Real editions published today: **1 (minimal)**. Add more to the `real` job
-matrix only after they build, stay under 2 GiB and boot in CI.
+Real editions published today: **1 (minimal)**, ~1.6 GB. Add more to the
+`real` job matrix only after they build, stay under 2 GiB and boot in CI.
+
+| Edition | Real build | Boot (BIOS/UEFI) | ISO size | Published |
+|---------|-----------|------------------|----------|-----------|
+| 1 minimal | yes | yes / yes | ~1.6 GB | **yes** |
+| 4 full | yes (2026-10-11 test) | yes / yes | 2,093,498,368 B (1.95 GiB) | no — only ~51 MiB under the 2 GiB asset limit; one package update could break the release |
+| 2 developer, 3 cloud-native | not yet tested (subsets of 4) | — | — | no |
+
+To publish 2–4: shrink the image (e.g. drop `linux-firmware` sub-packages not
+needed in VMs, stronger squashfs options) or split assets, then extend the
+matrix and re-run a dry run.
 
 Triggers:
 

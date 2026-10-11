@@ -142,7 +142,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          for d in dl/release-iso-*; do
+          # One artifact downloads flat into dl/, several into dl/<name>/:
+          # locate each edition's directory via its MANIFEST.
+          mapfile -t mans < <(find dl -name 'MANIFEST-*.txt' | sort)
+          (( ${#mans[@]} > 0 )) || { echo "::error::no MANIFEST found in downloaded artifacts"; find dl; exit 1; }
+          for m in "${mans[@]}"; do
+            d=$(dirname "$m")
             (cd "$d" && sha256sum -c SHA256SUMS-real-iso.txt)
             man=$(find "$d" -maxdepth 1 -name 'MANIFEST-*.txt' | head -1)
             iso=$(find "$d" -maxdepth 1 -name 'warble-linux-*.iso' | head -1)
