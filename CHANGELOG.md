@@ -11,8 +11,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - CI fails if an ISO is 1.9 GiB or larger.
 - The release workflow builds and boot-tests all four editions and publishes every edition that passes.
 
-## [Unreleased]
-
 ## [0.3.0] — 2026-10-11
 
 First release with **real, boot-tested ISOs** (edition 1, minimal).
