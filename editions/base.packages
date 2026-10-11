@@ -3,18 +3,19 @@
 
 # Kernel / archiso (live boot needs mkinitcpio-archiso hooks; see
 # profile/airootfs/etc/mkinitcpio.conf.d/archiso.conf)
+#
+# VM-first: no linux-firmware (~half the minimal ISO). VMs (QEMU/KVM,
+# VirtualBox, Hyper-V, VMware) need no device firmware; bare-metal Wi-Fi/GPUs
+# that need firmware won't work. No PXE (nfs/nbd hooks), no GRUB (UEFI boots via
+# systemd-boot, BIOS via syslinux).
 base
 linux
-linux-firmware
 amd-ucode
 intel-ucode
 mkinitcpio
 mkinitcpio-archiso
-mkinitcpio-nfs-utils
-nbd
 squashfs-tools
 syslinux
-grub
 edk2-shell
 memtest86+
 memtest86+-efi
