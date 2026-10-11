@@ -87,6 +87,42 @@ make bake EDITION=4
 EDITION=1 ./scripts/docker-bake.sh
 ```
 
+## Disposable sandboxes
+
+Download the assets from a [release](https://github.com/warbletech/warble-linux/releases)
+and check them first: `sha256sum -c SHA256SUMS.txt --ignore-missing`.
+Each flow below creates the sandbox, uses it, and destroys it. Replace
+`<ver>`, `<sha>` and the edition (`minimal`, `developer`, `cloud-native`, `full`).
+
+```bash
+# ISO (live, RAM-only): nothing persists. Quit QEMU to destroy it.
+qemu-system-x86_64 -enable-kvm -m 2048 -smp 2 -snapshot -nic user \
+  -cdrom warble-linux-minimal-<ver>-<sha>.iso -boot d
+```
+
+```powershell
+# WSL2 (Windows): user "warble" with passwordless sudo, systemd on
+wsl --import warble-sbx $env:LOCALAPPDATA\warble-sbx .\warble-linux-wsl2-minimal-<ver>.tar.gz --version 2
+wsl -d warble-sbx              # use
+wsl --unregister warble-sbx    # destroy (deletes the virtual disk)
+```
+
+```bash
+# Vagrant + libvirt (Linux): user "vagrant", Vagrant's insecure key (Vagrant replaces it on first `up`)
+vagrant box add --name warble/minimal warble-linux-minimal-<ver>-libvirt.box
+mkdir warble-sbx && cd warble-sbx && vagrant init warble/minimal
+vagrant up --provider=libvirt && vagrant ssh      # use
+vagrant destroy -f && cd .. && rm -rf warble-sbx && vagrant box remove warble/minimal   # destroy
+
+# OVA (VirtualBox / VMware; not yet boot-tested in VirtualBox)
+VBoxManage import warble-linux-minimal-<ver>.ova --vsys 0 --vmname warble-sbx
+VBoxManage startvm warble-sbx --type headless     # log in as vagrant / vagrant
+VBoxManage controlvm warble-sbx poweroff && VBoxManage unregistervm warble-sbx --delete
+```
+
+The ISO denies all inbound traffic. The Vagrant/OVA disk allows only inbound SSH (tcp/22).
+The WSL image has no firewall, because WSL2 manages the network.
+
 ## Repository layout
 
 ```text
@@ -108,6 +144,7 @@ pinned to full commit SHAs; workflow tokens are read-only except on publish jobs
 | [`real-iso.yml`](.github/workflows/real-iso.yml) | **Real** `mkarchiso` build of edition 1 in a privileged Arch container (fails on mock), then a headless QEMU boot test (BIOS + UEFI) that waits for a serial `login:` prompt. Provenance attested on `main`. |
 | [`publish.yml`](.github/workflows/publish.yml) | Matrix bake of editions 1–4, artifact tests, nightly prerelease on `main` (labeled **MOCK** when built without `mkarchiso`). |
 | [`release.yml`](.github/workflows/release.yml) | Stable releases on `vX.Y.Z` tags: real ISO(s) via `real-iso.yml`, boot-tested, provenance-attested; mock artifacts are never published. Dispatch `dry_run` → draft release. |
+| [`images.yml`](.github/workflows/images.yml) | **Real** WSL2 rootfs, Vagrant libvirt `.box` and OVA per edition (`scripts/build-images.sh`, pacstrap in a privileged Arch container). WSL: tar checks + `docker import` smoke test. Vagrant: QEMU boot (BIOS + UEFI) + SSH as `vagrant`. Releases include only images whose tests passed. |
 | [`gitleaks.yml`](.github/workflows/gitleaks.yml) | Secret scan of the full git history on every push/PR. |
 
 Verify a downloaded artifact: `sha256sum -c SHA256SUMS-*.txt` and
@@ -126,8 +163,10 @@ Under `/usr/local/bin` when the live rootfs is complete:
 | Mock artifacts + CI prerelease | **Working** |
 | Modular editions + Makefile | **Working** |
 | Bootloaders (syslinux/grub/efiboot) | **In tree** — [docs/bootloaders.md](docs/bootloaders.md) |
-| Full real ISO on public CI | **WIP** (use Arch host or `docker-bake.sh`) |
-| Real WSL / Vagrant disks | Stubs |
+| Real ISO on public CI | **Working** — built + boot-tested (BIOS/UEFI) per edition |
+| Real WSL2 rootfs | **Working** — tested via `docker import` in CI (not yet `wsl --import` on Windows) |
+| Real Vagrant box (libvirt) | **Working** — booted + SSH-tested in QEMU in CI |
+| OVA / OVF (VirtualBox) | Built from the same disk; structure verified, **not** boot-tested in VirtualBox |
 | GCP registry push | Optional (`scripts/push-to-gcp.sh`, `DRY_RUN=1` default) |
 
 ## Contributing
