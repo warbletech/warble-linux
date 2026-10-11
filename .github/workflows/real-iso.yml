@@ -108,7 +108,7 @@ jobs:
     name: boot smoke test (${{ matrix.firmware }})
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -143,13 +143,20 @@ jobs:
           if [[ -w /dev/kvm ]]; then accel=kvm; limit=600; fi
           fw=()
           if [[ "$FIRMWARE" == "uefi" ]]; then
-            code=$(ls /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd 2>/dev/null | head -1)
-            vars_src=$(ls /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd 2>/dev/null | head -1)
+            code=""; vars_src=""
+            for f in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
+              [[ -f "$f" ]] && { code="$f"; break; }
+            done
+            for f in /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd; do
+              [[ -f "$f" ]] && { vars_src="$f"; break; }
+            done
+            [[ -n "$code" && -n "$vars_src" ]] || { echo "::error::OVMF firmware not found"; ls -l /usr/share/OVMF || true; exit 1; }
             cp "$vars_src" /tmp/ovmf_vars.fd
             fw=(-drive "if=pflash,format=raw,readonly=on,file=$code" -drive "if=pflash,format=raw,file=/tmp/ovmf_vars.fd")
           fi
           echo "accel=$accel firmware=$FIRMWARE timeout=${limit}s iso=$iso"
           # Disposable sandbox: no disk, -snapshot, user-mode NIC; destroyed by kill.
+          timeout --kill-after=15 "$((limit + 30))" \
           qemu-system-x86_64 -accel "$accel" -m 2048 -smp 2 "${fw[@]}" \
             -cdrom "$iso" -boot d -snapshot -nic user,model=virtio-net-pci \
             -display none -monitor none -serial file:serial.log &
@@ -165,7 +172,11 @@ jobs:
             fi
             kill -0 "$qpid" 2>/dev/null || { result=exited; break; }
           done
-          kill "$qpid" 2>/dev/null || true   # tear down the sandbox
+          # Tear down the sandbox (SIGTERM, then SIGKILL)
+          kill "$qpid" 2>/dev/null || true
+          for _ in 1 2 3 4 5; do kill -0 "$qpid" 2>/dev/null || break; sleep 1; done
+          kill -9 "$qpid" 2>/dev/null || true
+          pkill -9 -f qemu-system-x86_64 2>/dev/null || true
           wait "$qpid" 2>/dev/null || true
           echo "----- serial console (tail) -----"
           tail -n 60 serial.log || true
