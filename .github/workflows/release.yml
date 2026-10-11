@@ -26,8 +26,9 @@ on:
         type: boolean
         default: false
 
+# Least privilege: read-only by default; write only on the jobs that publish.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: warble-linux-release-${{ github.ref }}
@@ -37,13 +38,15 @@ jobs:
   prepare:
     name: prepare version & tag
     runs-on: ubuntu-latest
+    permissions:
+      contents: write       # dispatch path commits VERSION and pushes the tag
     outputs:
       semver: ${{ steps.prep.outputs.semver }}
       tag: ${{ steps.prep.outputs.tag }}
       artifact_version: ${{ steps.prep.outputs.artifact_version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -116,7 +119,7 @@ jobs:
         edition: [1, 2, 3, 4]
     steps:
       - name: Checkout tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.tag }}
 
@@ -129,7 +132,7 @@ jobs:
         env:
           EDITION: ${{ matrix.edition }}
           VERSION: ${{ needs.prepare.outputs.artifact_version }}
-          GIT_SHA: ${{ github.sha }}
+          # GIT_SHA left unset: make-and-bake uses the checked-out tag's commit
           MOCK_ONLY: "0"
         run: |
           chmod +x scripts/*.sh make-and-bake.sh
@@ -138,7 +141,7 @@ jobs:
           find out -type f -size 0 -print -exec false {} +
 
       - name: Upload workflow artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-edition-${{ matrix.edition }}-${{ needs.prepare.outputs.tag }}
           path: out/*
@@ -150,10 +153,10 @@ jobs:
     needs: [prepare, bake]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.tag }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: out
           pattern: release-edition-*
@@ -166,13 +169,17 @@ jobs:
     name: GitHub Release ${{ needs.prepare.outputs.tag }}
     needs: [prepare, bake, test-matrix]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write       # create the GitHub Release
+      id-token: write       # provenance attestation
+      attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.tag }}
 
       - name: Download assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: release-assets
           pattern: release-edition-*
@@ -182,10 +189,32 @@ jobs:
         run: |
           find release-assets -type f | sort
           find release-assets -type f -size 0 -print -exec false {} +
-          # Write release notes snippet
+
+      - name: Detect mock artifacts
+        id: kind
+        run: |
+          # Never present mock artifacts as a real release: label them, keep them
+          # out of "Latest", and mark the release as a prerelease.
+          if grep -l '^mock=yes' release-assets/MANIFEST-*.txt >/dev/null 2>&1; then
+            echo "mock=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Release assets are MOCK (not bootable); publishing as labeled prerelease"
+          else
+            echo "mock=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Write release notes
+        env:
+          IS_MOCK: ${{ steps.kind.outputs.mock }}
+        run: |
           {
             echo "## Warble Linux ${{ needs.prepare.outputs.tag }}"
             echo ""
+            if [[ "$IS_MOCK" == "true" ]]; then
+              echo "> [!WARNING]"
+              echo "> **MOCK artifacts — not bootable.** These assets were produced without mkarchiso."
+              echo "> Use the ISO from the \"Real ISO build + boot\" workflow for an actual sandbox."
+              echo ""
+            fi
             echo "Semver **${{ needs.prepare.outputs.artifact_version }}** · editions 1–4"
             echo ""
             echo "| Artifact | Description |"
@@ -198,6 +227,7 @@ jobs:
             echo "Verify:"
             echo '```bash'
             echo "sha256sum -c SHA256SUMS-full-${{ needs.prepare.outputs.artifact_version }}.txt"
+            echo "gh attestation verify <file> -R ${{ github.repository }}"
             echo '```'
             echo ""
             echo "Rebuild: \`VERSION=${{ needs.prepare.outputs.artifact_version }} make release-check\`"
@@ -215,16 +245,21 @@ jobs:
           } > release-body.md
           cat release-body.md
 
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release-assets/*
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
-          name: "Warble Linux ${{ needs.prepare.outputs.tag }}"
+          name: "Warble Linux ${{ needs.prepare.outputs.tag }}${{ steps.kind.outputs.mock == 'true' && ' (MOCK, not bootable)' || '' }}"
           body_path: release-body.md
           files: release-assets/*
-          prerelease: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease == 'true' }}
+          prerelease: ${{ steps.kind.outputs.mock == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease == 'true') }}
           generate_release_notes: true
           fail_on_unmatched_files: true
-          make_latest: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease == 'true') }}
+          make_latest: ${{ steps.kind.outputs.mock != 'true' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease == 'true') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

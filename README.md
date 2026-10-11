@@ -101,19 +101,18 @@ out/          # build products (gitignored)
 
 ## CI
 
-GitHub-hosted **`ubuntu-latest`** only (no self-hosted runners).
+GitHub-hosted **`ubuntu-latest`** only (no self-hosted runners). All actions are
+pinned to full commit SHAs; workflow tokens are read-only except on publish jobs.
 
-On push to `main` / PRs / manual dispatch:
+| Workflow | What it does |
+|----------|--------------|
+| [`real-iso.yml`](.github/workflows/real-iso.yml) | **Real** `mkarchiso` build of edition 1 in a privileged Arch container (fails on mock), then a headless QEMU boot test (BIOS + UEFI) that waits for a serial `login:` prompt. Provenance attested on `main`. |
+| [`publish.yml`](.github/workflows/publish.yml) | Matrix bake of editions 1–4, artifact tests, nightly prerelease on `main` (labeled **MOCK** when built without `mkarchiso`). |
+| [`release.yml`](.github/workflows/release.yml) | Stable releases; mock assets are labeled, marked prerelease and never set as Latest. |
+| [`gitleaks.yml`](.github/workflows/gitleaks.yml) | Secret scan of the full git history on every push/PR. |
 
-1. Matrix bake of editions **1–4**
-2. Upload artifacts
-3. On `main`, create a **prerelease** with non-empty assets
-
-Workflow: [`.github/workflows/publish.yml`](.github/workflows/publish.yml)
-
-> Public runners do not ship `mkarchiso`. Bootloader configs are in-tree; CI still
-> ships **mock** packages on Ubuntu (see each `MANIFEST-*.txt`) until we add an
-> Arch/Docker real-bake job.
+Verify a downloaded artifact: `sha256sum -c SHA256SUMS-*.txt` and
+`gh attestation verify <file> -R warbletech/warble-linux`.
 
 ## Live helpers (full image goal)
 

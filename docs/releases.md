@@ -45,6 +45,20 @@ gh workflow run release.yml -f version=1.0.0
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
+### Real ISO — `.github/workflows/real-iso.yml`
+
+Push to `main`, PRs, manual dispatch (choose edition). Builds a real ISO with
+`mkarchiso` (`REQUIRE_REAL=1`), checks `mock=no`, size and the archiso
+initramfs hook, then boots it in QEMU (BIOS + UEFI) until a serial `login:`
+prompt appears. The ISO is a workflow artifact (5-day retention) with SLSA
+provenance on `main`.
+
+### Mock labeling
+
+`publish.yml` / `release.yml` still bake on Ubuntu without `mkarchiso`. When
+any MANIFEST says `mock=yes`, the release title is suffixed **(MOCK, not
+bootable)**, it is marked prerelease, and it is never set as Latest.
+
 ## Artifact names
 
 ```text
