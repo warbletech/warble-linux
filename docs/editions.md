@@ -30,8 +30,8 @@ Adds:
 - kubectl, helm
 - jq, yq
 
-k3s and similar may be enabled via airootfs systemd units / install hooks once
-the live profile is complete.
+k3s is **not** included (it is not in the official Arch repositories). Install
+it manually inside a running sandbox if you need a local cluster.
 
 ## 4 — Full
 

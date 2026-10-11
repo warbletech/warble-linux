@@ -1,11 +1,18 @@
 # Shared base packages (Arch official repos only — no AUR names).
 # Used by every edition. Real mkarchiso builds require these names to resolve.
 
-# Kernel / archiso
+# Kernel / archiso (live boot needs mkinitcpio-archiso hooks; see
+# profile/airootfs/etc/mkinitcpio.conf.d/archiso.conf)
 base
 linux
 linux-firmware
+amd-ucode
+intel-ucode
 mkinitcpio
+mkinitcpio-archiso
+mkinitcpio-nfs-utils
+nbd
+squashfs-tools
 syslinux
 grub
 edk2-shell

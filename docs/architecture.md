@@ -50,10 +50,35 @@ names must not appear in `editions/` (they break pacman on real builds).
 
 When a full ISO is baked:
 
-- **Openbox** session with Firefox and Terminator
-- **nftables** baseline firewall
+- Boots to an autologin root shell on tty1 (and a serial console on ttyS0 for
+  headless VMs/CI); `startx` starts the **Openbox** session with Firefox and
+  Terminator
+- **NetworkManager** brings up DHCP networking
+- **nftables** sandbox firewall (`profile/airootfs/etc/nftables.conf`):
+  - inbound: denied by default (only loopback, replies to outbound traffic,
+    DHCP replies and essential ICMP/ICMPv6 are accepted) — no service in the
+    sandbox is reachable from the network
+  - forward: denied except replies and Docker bridges
+  - outbound: allowed, so package installs, git and container pulls work
+- Live state is RAM-only (journald volatile); everything is discarded on reboot
 - Helpers under `/usr/local/bin` (`mount-wsl.sh`, `mount-vagrant.sh`, `mount-filestorage.sh`)
-- Optional welcome dialog via `profile.d`
+- One-time welcome dialog on tty1 via `profile.d`, listing only tools that are
+  actually installed in the edition
+
+### Offline mode
+
+For an air-gapped sandbox, cut egress at runtime:
+
+```bash
+sudo nft 'add rule inet filter output oifname != "lo" drop'
+```
+
+or boot the VM with no network device (e.g. `qemu ... -nic none`).
+
+### Not included
+
+k3s is not in the official Arch repositories, so it is not shipped or enabled.
+Install it manually inside a sandbox if needed (see https://docs.k3s.io).
 
 ## Relationship to Omarchy
 
