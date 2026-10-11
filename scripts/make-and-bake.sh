@@ -181,6 +181,10 @@ BOX="$OUT_DIR/warble-linux-${ENAME}-${VERSION}.box"
 MANIFEST="$OUT_DIR/MANIFEST-${ENAME}-${VERSION}.txt"
 SHAFILE="$OUT_DIR/SHA256SUMS-${ENAME}-${VERSION}.txt"
 
+# Stubs only accompany MOCK builds. Real WSL/Vagrant/OVA images come from
+# scripts/build-images.sh (scripts/build.sh images) and must not be shadowed.
+secondary=()
+if [[ "$MOCK_FLAG" == yes ]]; then
 WSL_STAGE="$WORK_DIR/wsl-root"
 rm -rf "$WSL_STAGE"
 mkdir -p "$WSL_STAGE/etc" "$WSL_STAGE/usr/local/bin" "$WSL_STAGE/root"
@@ -222,6 +226,8 @@ EOF
 echo "Warble Linux Vagrant box stub edition=$ENAME version=$VERSION" > "$BOX_STAGE/Vagrantfile"
 echo "# Placeholder — replace with real disk.vmdk after full bake" > "$BOX_STAGE/box.ovf"
 tar -C "$BOX_STAGE" -czf "$BOX" metadata.json Vagrantfile box.ovf
+secondary=("$WSL" "$OVF" "$BOX")
+fi
 
 {
   echo "Warble Linux build manifest"
@@ -231,26 +237,32 @@ tar -C "$BOX_STAGE" -czf "$BOX" metadata.json Vagrantfile box.ovf
   echo "built_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "host=$(uname -a)"
   echo "mock=$MOCK_FLAG"
-  echo "secondary_artifacts=stub   # WSL/OVF/box are placeholders until real rootfs/disk outputs exist"
+  if [[ "$MOCK_FLAG" == yes ]]; then
+    echo "secondary_artifacts=stub   # WSL/OVF/box are placeholders (mock build)"
+    echo "wsl=$(basename "$WSL")"
+    echo "ovf=$(basename "$OVF")"
+    echo "box=$(basename "$BOX")"
+  else
+    echo "secondary_artifacts=none   # real images: scripts/build.sh images"
+  fi
   echo "iso=$(basename "$ISO_PATH")"
-  echo "wsl=$(basename "$WSL")"
-  echo "ovf=$(basename "$OVF")"
-  echo "box=$(basename "$BOX")"
   echo "packages_file=profile/packages.x86_64"
 } > "$MANIFEST"
 
 (
   cd "$OUT_DIR"
+  files=("$(basename "$ISO_PATH")")
+  for f in "${secondary[@]}"; do files+=("$(basename "$f")"); done
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$(basename "$ISO_PATH")" "$(basename "$WSL")" "$(basename "$OVF")" "$(basename "$BOX")" > "$(basename "$SHAFILE")"
+    sha256sum "${files[@]}" > "$(basename "$SHAFILE")"
   else
-    shasum -a 256 "$(basename "$ISO_PATH")" "$(basename "$WSL")" "$(basename "$OVF")" "$(basename "$BOX")" > "$(basename "$SHAFILE")"
+    shasum -a 256 "${files[@]}" > "$(basename "$SHAFILE")"
   fi
 )
 
 log "Artifact sizes:"
 fail=0
-for f in "$ISO_PATH" "$WSL" "$OVF" "$BOX" "$MANIFEST" "$SHAFILE"; do
+for f in "$ISO_PATH" "${secondary[@]}" "$MANIFEST" "$SHAFILE"; do
   if [[ ! -s "$f" ]]; then
     echo "  EMPTY: $f" >&2
     fail=1

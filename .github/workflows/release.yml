@@ -1,6 +1,8 @@
 name: Release
 
-# Publishes REAL, boot-tested ISOs only. Mock artifacts are never published here.
+# build -> test -> publish. Publishes REAL, tested artifacts only; never mock/stubs.
+# Stages call the same scripts as a local run (docs/local-testing.md):
+#   build: scripts/build.sh iso|images   test: scripts/test.sh   publish: scripts/publish.sh
 #
 #   1. prepare  : resolve version/tag (tag push vX.Y.Z must match VERSION)
 #   2. real     : reusable real-iso.yml per edition — mkarchiso in a privileged
@@ -117,9 +119,23 @@ jobs:
       ref: ${{ needs.prepare.outputs.sha }}
       artifact-name: release-iso-${{ matrix.edition }}
 
+  images:
+    name: images edition ${{ matrix.edition }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: ["1", "2", "3", "4"]
+    uses: ./.github/workflows/images.yml
+    with:
+      edition: ${{ matrix.edition }}
+      version: ${{ needs.prepare.outputs.artifact_version }}
+      ref: ${{ needs.prepare.outputs.sha }}
+      artifact-prefix: release
+
   publish:
     name: GitHub Release ${{ needs.prepare.outputs.tag }}
-    needs: [prepare, real]
+    needs: [prepare, real, images]
     # Run even if some editions failed: only passing editions are published.
     if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-24.04
@@ -134,108 +150,42 @@ jobs:
           ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
 
-      - name: Download built ISOs
+      - name: Download built ISOs (build stage)
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: dl
+          path: dist/iso
           pattern: release-iso-*
 
-      - name: Download boot-success markers
+      - name: Download WSL / Vagrant / OVA images (build stage)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist/images
+          pattern: images-release-*
+          merge-multiple: true
+
+      - name: Download test markers (test stage)
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: ok
-          pattern: bootok-release-iso-*
+          pattern: "*ok-release-*"
           merge-multiple: true
 
-      - name: Verify (real only, < 2 GiB, checksums) and assemble assets
+      - name: Assemble tested assets + notes (scripts/publish.sh, dry run)
+        env:
+          AV: ${{ needs.prepare.outputs.artifact_version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           set -euo pipefail
-          mkdir -p release-assets
-          # One artifact downloads flat into dl/, several into dl/<name>/:
-          # locate each edition's directory via its MANIFEST.
-          mapfile -t mans < <(find dl -name 'MANIFEST-*.txt' | sort)
-          (( ${#mans[@]} > 0 )) || { echo "::error::no MANIFEST found in downloaded artifacts"; find dl; exit 1; }
-          : > skipped.txt
-          for m in "${mans[@]}"; do
-            d=$(dirname "$m")
-            ed=$(sed -n 's/^edition=.*(\([0-9]\)).*/\1/p' "$m")
-            if [[ ! -f "ok/boot-ok-${ed}-bios.txt" || ! -f "ok/boot-ok-${ed}-uefi.txt" ]]; then
-              echo "::warning::edition ${ed}: boot test did not pass on BIOS and UEFI — not publishing"
-              echo "$ed" >> skipped.txt
-              continue
-            fi
-            (cd "$d" && sha256sum -c SHA256SUMS-real-iso.txt)
-            man=$(find "$d" -maxdepth 1 -name 'MANIFEST-*.txt' | head -1)
-            iso=$(find "$d" -maxdepth 1 -name 'warble-linux-*.iso' | head -1)
-            [[ -n "$man" && -n "$iso" ]] || { echo "::error::missing ISO or MANIFEST in $d"; exit 1; }
-            grep -qx 'mock=no' "$man" || { echo "::error::$man is not mock=no — refusing to publish"; exit 1; }
-            size=$(stat -c%s "$iso")
-            (( size < 2 * 1024 * 1024 * 1024 )) || { echo "::error::$(basename "$iso") is $size bytes (GitHub limit 2 GiB)"; exit 1; }
-            echo "$(basename "$iso"): $size bytes"
-            cp "$iso" "$man" release-assets/
-            echo "$ed" >> published.txt
-          done
-          touch published.txt
-          for e in 1 2 3 4; do
-            grep -qx "$e" published.txt || grep -qx "$e" skipped.txt || echo "$e" >> skipped.txt   # build failed: no artifact
-          done
-          compgen -G 'release-assets/*.iso' >/dev/null || { echo "::error::no edition passed build + boot — nothing to publish"; exit 1; }
-          (cd release-assets && sha256sum -- *.iso MANIFEST-*.txt > SHA256SUMS.txt && cat SHA256SUMS.txt)
-          ls -la release-assets/
+          ls -la ok || true
+          scripts/publish.sh --dist dist --ok ok --version "$AV" --tag "$TAG" \
+            --assets "$GITHUB_WORKSPACE/release-assets"
+          cat release-body.md
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: |
-            release-assets/*.iso
-            release-assets/SHA256SUMS.txt
-
-      - name: Write release notes
-        env:
-          TAG: ${{ needs.prepare.outputs.tag }}
-          AV: ${{ needs.prepare.outputs.artifact_version }}
-          SEMVER: ${{ needs.prepare.outputs.semver }}
-          REPO: ${{ github.repository }}
-        run: |
-          {
-            echo "## Warble Linux ${TAG}"
-            echo ""
-            echo "Real live ISO(s) built with \`mkarchiso\` and **boot-tested in CI** (QEMU, BIOS + UEFI, serial login prompt) before upload."
-            echo ""
-            echo "| Edition | Asset |"
-            echo "|---------|-------|"
-            for f in release-assets/*.iso; do
-              b=$(basename "$f"); e=$(echo "$b" | sed -E "s/^warble-linux-(.*)-${AV}-.*/\1/")
-              echo "| ${e} | \`${b}\` ($(( $(stat -c%s "$f") / 1024 / 1024 )) MiB) |"
-            done
-            echo ""
-            echo "Only editions that built **and** booted on BIOS and UEFI are published."
-            if [[ -s skipped.txt ]]; then
-              echo "Not published this time (failed build or boot): edition(s) $(sort -u skipped.txt | tr '\n' ' ')"
-            fi
-            echo ""
-            echo "### Verify"
-            echo '```bash'
-            echo "sha256sum -c SHA256SUMS.txt --ignore-missing"
-            echo "gh attestation verify warble-linux-*.iso -R ${REPO}"
-            echo '```'
-            echo ""
-            echo "### Disposable sandbox"
-            echo '```bash'
-            echo "qemu-system-x86_64 -enable-kvm -m 2048 -cdrom warble-linux-minimal-${AV}-*.iso -boot d -snapshot -nic user"
-            echo '```'
-            if [[ -f CHANGELOG.md ]]; then
-              echo ""
-              echo "### Changelog"
-              echo ""
-              awk -v ver="$SEMVER" '
-                $0 ~ "^## \\[" ver "\\]" {p=1; next}
-                p && $0 ~ /^## \[/ {exit}
-                p {print}
-              ' CHANGELOG.md || true
-            fi
-          } > release-body.md
-          cat release-body.md
+          # Every published file (ISOs, MANIFESTs, tested WSL/Vagrant/OVA images)
+          subject-checksums: release-assets/SHA256SUMS.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
