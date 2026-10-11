@@ -30,22 +30,19 @@ def main():
     if header.get("version") != 2:
         raise SystemExit("expected an asciicast v2 file")
 
-    # Join output so OSC sequences split across events are removed whole.
-    out, pending = [], None
-    for t, kind, data in events:
-        if kind != "o":
-            continue
-        if pending:
-            data, t = pending[1] + data, pending[0]
-            pending = None
-        cut = data.rfind("\x1b]")
-        if cut != -1 and not OSC.match(data, cut):
-            pending, data = (t, data[cut:]), data[:cut]
-        data = OSC.sub("", data)
-        if data:
-            out.append([t, data])
-    if pending:
-        out.append([pending[0], OSC.sub("", pending[1])])
+    # Strip OSC sequences on the joined stream, so ones split across events
+    # (even ESC alone at the end of an event) are removed whole.
+    outs = [(t, data) for t, kind, data in events if kind == "o"]
+    full = "".join(d for _, d in outs)
+    drop = bytearray(len(full))
+    for m in OSC.finditer(full):
+        drop[m.start():m.end()] = b"\x01" * (m.end() - m.start())
+    out, pos = [], 0
+    for t, data in outs:
+        kept = "".join(c for i, c in enumerate(data, pos) if not drop[i])
+        pos += len(data)
+        if kept:
+            out.append([t, kept])
 
     # Find the login prompt (may be split across events).
     t_login, tail = None, ""
