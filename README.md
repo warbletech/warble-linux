@@ -133,6 +133,13 @@ VBoxManage controlvm warble-sbx poweroff && VBoxManage unregistervm warble-sbx -
 The ISO denies all inbound traffic. The Vagrant/OVA disk allows only inbound SSH (tcp/22).
 The WSL image has no firewall, because WSL2 manages the network.
 
+## Look and feel
+
+Each edition boots to an Openbox desktop with its own wallpaper and bird. Minimal uses Warble, developer Starling, cloud-native Heron and full Murmuration.
+Login shells show a short welcome that lists only the tools installed.
+Sources and licensing are in [assets/brand/](assets/brand/README.md).
+CI captures the MOTD and console/desktop screenshots on every boot test (`screenshots-<edition>` artifacts).
+
 ## Repository layout
 
 ```text

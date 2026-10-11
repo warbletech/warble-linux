@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
+<!-- Warble Linux mascot: Starling (original flat art, Warble Cloud) -->
+<polygon points="420.0,610.0 240.0,690.0 290.0,730.0 470.0,660.0" fill="#102f5e"/>
+<polygon points="450.0,420.0 610.0,400.0 640.0,620.0 420.0,610.0" fill="#12356a"/>
+<polygon points="610.0,400.0 700.0,420.0 690.0,560.0 640.0,620.0" fill="#10a6b4"/>
+<polygon points="700.0,420.0 690.0,560.0 650.0,500.0" fill="#34d399" fill-opacity="0.9"/>
+<polygon points="540.0,300.0 650.0,280.0 730.0,340.0 700.0,420.0 610.0,400.0 530.0,360.0" fill="#102f5e"/>
+<polygon points="540.0,300.0 650.0,280.0 600.0,345.0" fill="#6c63ff" fill-opacity="0.9"/>
+<polygon points="720.0,330.0 830.0,362.0 716.0,372.0" fill="#fbbf24"/>
+<polygon points="560.0,410.0 300.0,600.0 540.0,590.0" fill="#1e3a5f"/>
+<polygon points="560.0,410.0 380.0,470.0 300.0,600.0" fill="#6c63ff" fill-opacity="0.85"/>
+<polygon points="560.0,410.0 540.0,590.0 620.0,500.0" fill="#10a6b4" fill-opacity="0.8"/>
+<circle cx="668" cy="335" r="13" fill="#ffffff"/><circle cx="671" cy="335" r="7" fill="#0a0a0f"/>
+<path d="M560 615 L552 690 M600 618 L612 690" stroke="#102f5e" stroke-width="11" stroke-linecap="round"/>
+<path d="M541 406 L546 413 L541 420 L536 413Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M613 389 L618 396 L613 403 L608 396Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M588 453 L593 460 L588 467 L583 460Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M483 485 L488 492 L483 499 L478 492Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M478 468 L483 475 L478 482 L473 475Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M485 393 L490 400 L485 407 L480 400Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M563 555 L568 562 L563 569 L558 562Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M497 422 L502 429 L497 436 L492 429Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M608 581 L613 588 L608 595 L603 588Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M597 460 L602 467 L597 474 L592 467Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M685 383 L690 390 L685 397 L680 390Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M659 437 L664 444 L659 451 L654 444Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M502 399 L507 406 L502 413 L497 406Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M538 553 L543 560 L538 567 L533 560Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M510 501 L515 508 L510 515 L505 508Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M611 455 L616 462 L611 469 L606 462Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M591 387 L596 394 L591 401 L586 394Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M483 418 L488 425 L483 432 L478 425Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M620 467 L625 474 L620 481 L615 474Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M539 502 L544 509 L539 516 L534 509Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M570 439 L575 446 L570 453 L565 446Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M645 527 L650 534 L645 541 L640 534Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M524 499 L529 506 L524 513 L519 506Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M586 566 L591 573 L586 580 L581 573Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M630 436 L635 443 L630 450 L625 443Z" fill="#e8e8f0" opacity="0.85"/>
+<path d="M686 399 L691 406 L686 413 L681 406Z" fill="#e8e8f0" opacity="0.85"/>
+<text x="770" y="560" font-family="JetBrains Mono, DejaVu Sans Mono, monospace" font-size="92" font-weight="700" fill="#4fc3f7">{ }</text>
+</svg>

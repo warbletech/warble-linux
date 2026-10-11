@@ -161,6 +161,26 @@ jobs:
           iso=$(find out -maxdepth 1 -name 'warble-linux-*.iso' | head -1)
           scripts/test.sh iso "$iso" "$FIRMWARE"
 
+      # Cosmetic evidence (MOTD text + console/desktop screenshots). Non-blocking:
+      # a flaky screenshot must never fail a required boot check.
+      - name: Capture MOTD + screenshots (scripts/test.sh iso-shots)
+        if: matrix.firmware == 'bios'
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          sudo apt-get install -y -qq python3-pil fonts-dejavu-core >/dev/null
+          iso=$(find out -maxdepth 1 -name 'warble-linux-*.iso' | head -1)
+          scripts/test.sh iso-shots "$iso" shots
+
+      - name: Upload screenshots
+        if: always() && matrix.firmware == 'bios'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: screenshots-${{ inputs.edition || '1' }}
+          path: shots/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Upload boot-success marker
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
