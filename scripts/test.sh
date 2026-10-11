@@ -127,7 +127,10 @@ t_wsl() {
   for p in ./etc/wsl.conf ./etc/os-release ./usr/bin/bash ./usr/lib/systemd/systemd ./etc/sudoers.d/10-warble; do
     grep -qx "$p" "$list" || die "missing $p"
   done
-  if grep -E '^\./boot/.+|vmlinuz' "$list"; then die "WSL rootfs must not contain a kernel"; fi
+  # a kernel = /boot images or an installed kernel package's modules tree
+  if grep -E '^\./boot/(vmlinuz|initramfs)|^\./usr/lib/modules/[^/]+/vmlinuz$' "$list"; then
+    die "WSL rootfs must not contain a kernel"
+  fi
   tar -xzOf "$tgz" ./etc/wsl.conf | tee "$list.conf"
   grep -qx 'systemd=true' "$list.conf" && grep -qx 'default=warble' "$list.conf" || die "wsl.conf lacks systemd=true / default=warble"
   tag="warble-wsl-test:$$"
