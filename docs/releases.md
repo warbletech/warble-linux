@@ -73,6 +73,42 @@ git tag -a v0.3.0 -m "Warble Linux v0.3.0" && git push origin v0.3.0
 gh workflow run release.yml --ref <branch> -f dry_run=true
 ```
 
+### WSL / Vagrant / OVA images — `.github/workflows/images.yml`
+
+`scripts/build-images.sh <edition> all` pacstraps the edition's packages, without the live-ISO-only packages, in a privileged Arch container. The live ISO has no installer or sshd, so a pacstrap build replaces "Packer drives the ISO". It produces:
+
+| Asset | What it is | CI test |
+|-------|-----------|---------|
+| `warble-linux-wsl2-<edition>-<ver>.tar.gz` | WSL2 rootfs. No kernel or bootloader. `/etc/wsl.conf`: `systemd=true`, default user `warble` (passwordless sudo, locked password); WSL generates `resolv.conf`. No firewall or NetworkManager, because WSL owns networking. | Tar structure (no `/boot` kernel, wsl.conf values), `docker import` + smoke commands as `warble` (sudo, pacman, git) |
+| `warble-linux-<edition>-<ver>-libvirt.box` | Vagrant box (libvirt, qcow2). MBR disk: FAT32 `/boot` with syslinux (BIOS) and systemd-boot (UEFI), ext4 root. User `vagrant`/`vagrant` with Vagrant's insecure key (pinned commit) and passwordless sudo, sshd, systemd-networkd DHCP, nftables (deny inbound except tcp/22) | QEMU/KVM boot (BIOS **and** UEFI), SSH as `vagrant` with the insecure key, sudo/firewall/mount checks, VM destroyed |
+| `warble-linux-<edition>-<ver>.ova` | OVF 1.0 + streamOptimized VMDK of the same disk (VirtualBox/VMware, SATA + E1000) | OVF-first tar layout, `.mf` checksums, `qemu-img` VMDK check. **Not boot-tested in VirtualBox** (no VirtualBox on hosted runners). |
+
+A test that passes uploads an `imgok-*` marker. `release.yml` calls `images.yml` for editions 1–4 and publishes:
+- a WSL tarball only if its WSL test passed
+- a box and OVA only if the box passed **both** the BIOS and UEFI SSH tests
+
+Release notes list anything skipped. Each image must be under the 1.9 GiB guard. The pacman keyring and machine-id are generated on first boot and never shipped.
+
+Windows `wsl --import` is not tested in CI. GitHub-hosted Windows runners lack nested virtualization, so WSL2 cannot run there.
+
+### Disposable sandbox (create → use → destroy)
+
+```bash
+# ISO: live and RAM-only. Quit QEMU to destroy it.
+qemu-system-x86_64 -enable-kvm -m 2048 -smp 2 -snapshot -nic user -cdrom warble-linux-<edition>-<ver>-<sha>.iso -boot d
+# WSL2 (PowerShell)
+wsl --import warble-sbx $env:LOCALAPPDATA\warble-sbx .\warble-linux-wsl2-<edition>-<ver>.tar.gz --version 2
+wsl -d warble-sbx
+wsl --unregister warble-sbx
+# Vagrant + libvirt
+vagrant box add --name warble/<edition> warble-linux-<edition>-<ver>-libvirt.box
+vagrant init warble/<edition> && vagrant up --provider=libvirt && vagrant ssh
+vagrant destroy -f && vagrant box remove warble/<edition>
+# OVA (VirtualBox; untested)
+VBoxManage import warble-linux-<edition>-<ver>.ova --vsys 0 --vmname warble-sbx && VBoxManage startvm warble-sbx --type headless
+VBoxManage controlvm warble-sbx poweroff && VBoxManage unregistervm warble-sbx --delete
+```
+
 ### Real ISO — `.github/workflows/real-iso.yml`
 
 Push to `main`, PRs, manual dispatch (choose edition). Builds a real ISO with
@@ -91,9 +127,9 @@ and are never set as Latest. `release.yml` never publishes mock artifacts.
 
 ```text
 warble-linux-<edition>-<VERSION>-<gitsha>.iso
-warble-linux-wsl2-<edition>-<VERSION>.tar.gz
-warble-linux-<edition>-<VERSION>.ovf
-warble-linux-<edition>-<VERSION>.box
+warble-linux-wsl2-<edition>-<VERSION>.tar.gz      # release: only if WSL test passed
+warble-linux-<edition>-<VERSION>-libvirt.box       # release: only if BIOS+UEFI SSH tests passed
+warble-linux-<edition>-<VERSION>.ova               # release: with the box (same disk)
 MANIFEST-<edition>-<VERSION>.txt
 SHA256SUMS-<edition>-<VERSION>.txt
 ```
