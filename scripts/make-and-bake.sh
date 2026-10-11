@@ -8,7 +8,8 @@
 # Usage:
 #   EDITION=1 ./scripts/make-and-bake.sh
 #   EDITION=4 MOCK_ONLY=1 ./scripts/make-and-bake.sh
-#   make edition=2
+#   make bake EDITION=2
+#   REQUIRE_REAL=1 EDITION=1 ./scripts/make-and-bake.sh   # fail unless a real ISO is built
 #
 set -euo pipefail
 
@@ -29,6 +30,7 @@ OUT_DIR="${OUT_DIR:-$ROOT/out}"
 PROFILE_DIR="$ROOT/profile"
 EDITIONS_DIR="$ROOT/editions"
 MOCK_ONLY="${MOCK_ONLY:-0}"
+REQUIRE_REAL="${REQUIRE_REAL:-0}"
 
 log() { printf '==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -93,27 +95,32 @@ mkdir -p "$OUT_DIR" "$WORK_DIR"
 ISO_NAME="warble-linux-${ENAME}-${VERSION}-${GIT_SHA}.iso"
 ISO_PATH="$OUT_DIR/$ISO_NAME"
 
-build_real_iso() {
-  command -v mkarchiso >/dev/null 2>&1 || return 1
-  [[ -f "$PROFILE_DIR/profiledef.sh" ]] || return 1
-  [[ -f "$PROFILE_DIR/pacman.conf" ]] || {
-    log "profile/pacman.conf missing — cannot run real mkarchiso yet"
-    return 1
-  }
-  # Bootloader trees are still WIP; refuse if clearly incomplete
-  if [[ ! -d "$PROFILE_DIR/syslinux" && ! -d "$PROFILE_DIR/grub" ]]; then
-    log "profile lacks syslinux/ and grub/ — real bake needs releng-style bootloaders (see docs/building.md)"
+# Can this host run a real archiso bake? (mkarchiso + complete profile)
+real_bake_possible() {
+  command -v mkarchiso >/dev/null 2>&1 || { log "mkarchiso not found"; return 1; }
+  [[ -f "$PROFILE_DIR/profiledef.sh" ]] || { log "profile/profiledef.sh missing"; return 1; }
+  [[ -f "$PROFILE_DIR/pacman.conf" ]] || { log "profile/pacman.conf missing"; return 1; }
+  if [[ ! -d "$PROFILE_DIR/syslinux" && ! -d "$PROFILE_DIR/grub" && ! -d "$PROFILE_DIR/efiboot" ]]; then
+    log "profile lacks bootloader trees (syslinux/, grub/, efiboot/) — see docs/building.md"
     return 1
   fi
-  log "Running mkarchiso (real ISO)..."
-  mkarchiso -v -w "$WORK_DIR" -o "$OUT_DIR" "$PROFILE_DIR"
-  local found
-  found=$(ls -1 "$OUT_DIR"/*.iso 2>/dev/null | head -1 || true)
-  if [[ -n "$found" && "$found" != "$ISO_PATH" ]]; then
-    mv -f "$found" "$ISO_PATH"
-  fi
-  [[ -s "$ISO_PATH" ]] || return 1
   return 0
+}
+
+build_real_iso() {
+  # Per-edition scratch output so we never pick up another edition's ISO.
+  local iso_out="$WORK_DIR/iso-out" found=()
+  rm -rf "$iso_out"
+  mkdir -p "$iso_out"
+  log "Running mkarchiso (real ISO)..."
+  mkarchiso -v -w "$WORK_DIR/archiso" -o "$iso_out" "$PROFILE_DIR" || return 1
+  mapfile -t found < <(find "$iso_out" -maxdepth 1 -type f -name '*.iso')
+  if (( ${#found[@]} != 1 )); then
+    log "expected exactly one ISO from mkarchiso, found ${#found[@]}"
+    return 1
+  fi
+  mv -f "${found[0]}" "$ISO_PATH"
+  [[ -s "$ISO_PATH" ]]
 }
 
 build_mock_iso() {
@@ -132,10 +139,9 @@ Built:    $(date -u +%Y-%m-%dT%H:%M:%SZ)
 This file is produced without a complete archiso profile / mkarchiso.
 For a real ISO on Arch Linux:
   sudo pacman -S archiso
-  # complete profile bootloaders (see docs/building.md)
-  make edition=$EDITION
+  make bake EDITION=$EDITION
 
-https://github.com/warble-tech/warble-linux
+https://github.com/warbletech/warble-linux
 EOF
   cp "$PKG_FILE" "$stage/warble-linux/packages.x86_64" 2>/dev/null || true
   if command -v genisoimage >/dev/null 2>&1; then
@@ -150,10 +156,20 @@ EOF
   [[ -s "$ISO_PATH" ]] || echo "warble-linux mock" > "$ISO_PATH"
 }
 
+# MOCK_FLAG records the path that was actually taken (written to MANIFEST).
 if [[ "$MOCK_ONLY" == "1" ]]; then
+  [[ "$REQUIRE_REAL" == "1" ]] && die "MOCK_ONLY=1 and REQUIRE_REAL=1 are mutually exclusive"
   build_mock_iso
-elif ! build_real_iso; then
+  MOCK_FLAG=yes
+elif real_bake_possible; then
+  # A real bake was possible and attempted: failure is fatal, never a silent mock.
+  build_real_iso || die "mkarchiso failed — not falling back to mock (set MOCK_ONLY=1 to build mock artifacts deliberately)"
+  MOCK_FLAG=no
+elif [[ "$REQUIRE_REAL" == "1" ]]; then
+  die "REQUIRE_REAL=1 but this host cannot run a real archiso bake (see messages above)"
+else
   build_mock_iso
+  MOCK_FLAG=yes
 fi
 
 # ── Secondary artifacts ──────────────────────────────────────────────────────
@@ -207,13 +223,6 @@ echo "Warble Linux Vagrant box stub edition=$ENAME version=$VERSION" > "$BOX_STA
 echo "# Placeholder — replace with real disk.vmdk after full bake" > "$BOX_STAGE/box.ovf"
 tar -C "$BOX_STAGE" -czf "$BOX" metadata.json Vagrantfile box.ovf
 
-MOCK_FLAG=no
-if [[ "$MOCK_ONLY" == "1" ]] || ! command -v mkarchiso >/dev/null 2>&1; then
-  MOCK_FLAG=yes
-elif [[ ! -d "$PROFILE_DIR/syslinux" && ! -d "$PROFILE_DIR/grub" ]]; then
-  MOCK_FLAG=yes
-fi
-
 {
   echo "Warble Linux build manifest"
   echo "edition=$ENAME ($EDITION)"
@@ -222,6 +231,7 @@ fi
   echo "built_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "host=$(uname -a)"
   echo "mock=$MOCK_FLAG"
+  echo "secondary_artifacts=stub   # WSL/OVF/box are placeholders until real rootfs/disk outputs exist"
   echo "iso=$(basename "$ISO_PATH")"
   echo "wsl=$(basename "$WSL")"
   echo "ovf=$(basename "$OVF")"
@@ -255,4 +265,4 @@ log "Build complete → $OUT_DIR"
 ls -la "$OUT_DIR"
 echo ""
 echo "Edition: $ENAME | mock=$MOCK_FLAG"
-echo "Docs: docs/building.md | https://github.com/warble-tech/warble-linux"
+echo "Docs: docs/building.md | https://github.com/warbletech/warble-linux"

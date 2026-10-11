@@ -1,11 +1,18 @@
-# Optional real-ISO bake environment (Arch + archiso).
-# Usage: ./scripts/docker-bake.sh EDITION=1
-FROM archlinux:latest
+# Real-ISO bake environment (Arch + archiso).
+# Usage: EDITION=1 ./scripts/docker-bake.sh
+#
+# Pinned to a dated official archlinux image for reproducible tooling; bump the
+# tag deliberately (https://hub.docker.com/_/archlinux/tags?name=base-).
+FROM archlinux:base-20261004.0.606936
 
-RUN pacman -Syu --noconfirm && \
-    pacman -S --noconfirm archiso git make which tar gzip && \
+# archiso: mkarchiso; grub: host-side grub-install/grub-mkstandalone for grub
+# boot modes; mtools/dosfstools/libisoburn/squashfs-tools: EFI image, ISO and
+# squashfs creation (archiso deps, listed explicitly so failures are obvious).
+RUN pacman -Syu --noconfirm --needed \
+      archiso grub mtools dosfstools libisoburn squashfs-tools \
+      git make which tar gzip && \
     pacman -Scc --noconfirm
 
 WORKDIR /src
 # Caller mounts the repo at /src and runs make-and-bake as root inside.
-CMD ["bash", "-lc", "make bake"]
+CMD ["bash", "-lc", "REQUIRE_REAL=1 make bake"]

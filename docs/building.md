@@ -22,7 +22,7 @@ Artifacts land in `out/`:
 
 | Artifact | Description |
 |----------|-------------|
-| `warble-linux-<edition>-<ver>-<sha>.iso` | Real ISO if mkarchiso succeeds; otherwise mock |
+| `warble-linux-<edition>-<ver>-<sha>.iso` | Real ISO when mkarchiso can run (failure is fatal); mock only when it cannot run or `MOCK_ONLY=1` |
 | `warble-linux-wsl2-*.tar.gz` | WSL-style rootfs tarball (mock until full rootfs bake) |
 | `warble-linux-*.ovf` | OVF stub for packaging pipelines |
 | `warble-linux-*.box` | Vagrant box stub |
@@ -36,7 +36,7 @@ Artifacts land in `out/`:
    sudo pacman -S archiso
    ```
 
-2. Complete the archiso profile bootloaders (still WIP — see below).
+2. (Bootloaders are vendored in-tree; see below.)
 
 3. Build:
 
@@ -48,9 +48,13 @@ The bake script only calls `mkarchiso` when:
 
 - `mkarchiso` is on `PATH`
 - `profile/profiledef.sh` and `profile/pacman.conf` exist
-- `profile/syslinux/` **or** `profile/grub/` is present
+- `profile/syslinux/`, `profile/grub/` **or** `profile/efiboot/` is present
 
-Otherwise it falls back to mock artifacts automatically.
+If those conditions hold, a real bake is attempted and **any `mkarchiso`
+failure fails the build** (no silent mock fallback). If they do not hold, the
+script builds mock artifacts and records `mock=yes` in the MANIFEST. Set
+`REQUIRE_REAL=1` to fail instead of mocking (CI real-bake job and
+`docker-bake.sh` do this).
 
 ## Bootloaders (landed)
 
@@ -75,7 +79,7 @@ EDITION=1 ./scripts/docker-bake.sh
 ```
 
 This builds an Arch container with `archiso`, mounts the repo, and runs
-`make bake`. Needs **privileged** mode, network for pacman, and substantial
+`REQUIRE_REAL=1 make bake`. Needs **privileged** mode, network for pacman, and substantial
 disk/time. Inspect `MANIFEST-*.txt` for `mock=no` after success.
 
 ## Environment variables
@@ -88,6 +92,7 @@ disk/time. Inspect `MANIFEST-*.txt` for `mock=no` after success.
 | `OUT_DIR` | `./out` | Artifact directory |
 | `WORK_DIR` | `/tmp/warble-linux-work` | Scratch |
 | `MOCK_ONLY` | `0` | Force mock path when `1` |
+| `REQUIRE_REAL` | `0` | Fail unless a real `mkarchiso` ISO is produced |
 
 ## Semver & releases
 

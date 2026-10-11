@@ -5,15 +5,22 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${OUT_DIR:-$ROOT/out}"
-# Editions expected after `make all-editions`
-EDITIONS=(minimal developer cloud-native full)
+# Editions expected after `make all-editions` (override: EDITIONS="minimal")
+read -r -a EDITIONS <<<"${EDITIONS:-minimal developer cloud-native full}"
 # Minimum non-empty size (GitHub Releases require >= 1 byte; we require more signal)
 MIN_BYTES=32
+# A real archiso ISO (kernel + initramfs + squashfs) is far larger than this.
+MIN_REAL_ISO_BYTES=$((200 * 1024 * 1024))
 FAIL=0
 
 log() { printf '==> %s\n' "$*"; }
 ok() { printf '  OK  %s\n' "$*"; }
 bad() { printf '  FAIL %s\n' "$*" >&2; FAIL=1; }
+
+# ISO 9660 primary volume descriptor: "CD001" at byte offset 32769.
+is_iso9660() {
+  [[ "$(dd if="$1" bs=1 skip=32769 count=5 2>/dev/null)" == "CD001" ]]
+}
 
 [[ -d "$OUT_DIR" ]] || { echo "error: missing $OUT_DIR — run make all-editions first" >&2; exit 1; }
 
@@ -23,8 +30,12 @@ log "Testing artifacts in $OUT_DIR"
 for ename in "${EDITIONS[@]}"; do
   log "Edition: $ename"
 
+  # mock=yes|no from the MANIFEST decides how strict the ISO checks are
+  man=$(find "$OUT_DIR" -maxdepth 1 -type f -name "MANIFEST-${ename}-*.txt" | sort | tail -1 || true)
+  mock=$(grep -m1 '^mock=' "${man:-/dev/null}" 2>/dev/null | cut -d= -f2 || true)
+
   # ISO: warble-linux-<edition>-<version>-<sha>.iso (glob)
-  mapfile -t isos < <(find "$OUT_DIR" -maxdepth 1 -type f -name "warble-linux-${ename}-*.iso" ! -name '*.ovf' 2>/dev/null | sort)
+  mapfile -t isos < <(find "$OUT_DIR" -maxdepth 1 -type f -name "warble-linux-${ename}-*.iso" 2>/dev/null | sort)
   if (( ${#isos[@]} == 0 )); then
     bad "no ISO for $ename"
   else
@@ -35,13 +46,19 @@ for ename in "${EDITIONS[@]}"; do
     else
       ok "ISO $(basename "$iso") ($sz bytes)"
     fi
-    # Prefer file(1) magic; mock may be ISO9660 or gzip (tar fallback)
-    if command -v file >/dev/null 2>&1; then
-      ft=$(file -b "$iso" || true)
-      if [[ $ft == *ISO* || $ft == *ISO\ 9660* || $ft == *gzip* || $ft == *archive* || $ft == *data* ]]; then
-        ok "ISO type: $ft"
+    if is_iso9660 "$iso"; then
+      ok "ISO 9660 signature present"
+    elif [[ "$mock" == "yes" ]] && gzip -t "$iso" 2>/dev/null; then
+      # Mock fallback on hosts without genisoimage/mkisofs/xorriso
+      ok "mock ISO is a gzip tarball (no ISO tooling on build host)"
+    else
+      bad "not an ISO 9660 image: $(basename "$iso")"
+    fi
+    if [[ "$mock" == "no" ]]; then
+      if (( sz < MIN_REAL_ISO_BYTES )); then
+        bad "MANIFEST says mock=no but ISO is only $sz bytes"
       else
-        bad "unexpected ISO type: $ft"
+        ok "real ISO size plausible"
       fi
     fi
   fi
@@ -84,7 +101,6 @@ for ename in "${EDITIONS[@]}"; do
     fi
   fi
 
-  man=$(find "$OUT_DIR" -maxdepth 1 -type f -name "MANIFEST-${ename}-*.txt" | sort | tail -1 || true)
   if [[ -z "$man" || ! -s "$man" ]]; then
     bad "missing MANIFEST for $ename"
   else
@@ -99,7 +115,7 @@ for ename in "${EDITIONS[@]}"; do
   if [[ -z "$sha" || ! -s "$sha" ]]; then
     bad "missing SHA256SUMS for $ename"
   else
-    (
+    if (
       cd "$OUT_DIR"
       if command -v sha256sum >/dev/null 2>&1; then
         # Only verify lines that reference files present (ISO names may drift with git sha)
@@ -110,7 +126,11 @@ for ename in "${EDITIONS[@]}"; do
           fi
         done <"$(basename "$sha")"
       fi
-    ) && ok "SHA256SUMS verify for existing files ($(basename "$sha"))" || bad "SHA256SUMS mismatch for $ename"
+    ); then
+      ok "SHA256SUMS verify for existing files ($(basename "$sha"))"
+    else
+      bad "SHA256SUMS mismatch for $ename"
+    fi
   fi
 done
 

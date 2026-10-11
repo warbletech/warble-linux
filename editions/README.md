@@ -20,7 +20,7 @@ reviewable in pull requests without scanning a generated `profile/packages.x86_6
 ## Build
 
 ```bash
-make edition=1          # minimal
-make edition=4          # full
+make bake EDITION=1     # minimal
+make bake EDITION=4     # full
 make all-editions       # 1 through 4
 ```
