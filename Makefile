@@ -1,13 +1,17 @@
 # Warble Linux — developer entry points
 # https://github.com/warbletech/warble-linux
 
-.PHONY: build test publish help bake all-editions clean mock lint check test-artifacts release-check sync-bootloaders version bump-patch bump-minor bump-major
+.PHONY: build test publish demo help bake all-editions clean mock lint check test-artifacts release-check sync-bootloaders version bump-patch bump-minor bump-major
 
 EDITION ?= 1
 MOCK_ONLY ?= 0
 WHAT ?= all          # build: iso | images | all
 DOCKER ?= 0          # build: 1 = run inside the pinned privileged Arch container
-DRAFT ?= 0           # publish: 1 = upload to a DRAFT release (default: dry run)
+DRAFT ?= 0           # demo:
+	@test -n "$(ISO)" || { echo 'usage: make demo ISO=path/to/warble-linux-<edition>-*.iso'; exit 2; }
+	scripts/demo/record.sh "$(ISO)" demo-out
+
+publish: 1 = upload to a DRAFT release (default: dry run)
 export EDITION MOCK_ONLY
 
 # Catch the common typo `make edition=2`, which would silently build edition 1.
@@ -19,6 +23,7 @@ help:
 	@echo "  make build EDITION=1 [WHAT=iso|images|all] [DOCKER=1]   build real artifacts -> out/"
 	@echo "  make test                    QEMU BIOS/UEFI ISO boot, WSL tar + docker import, Vagrant box SSH, OVA"
 	@echo "  make publish [DRAFT=1]       assemble tested assets (dry run; DRAFT=1 -> draft release)"
+	@echo "  make demo ISO=out/<iso>      record an asciinema demo (.cast/.gif/.mp4) -> demo-out/"
 	@echo "Warble Linux  $$(cat VERSION 2>/dev/null || echo '?')"
 	@echo ""
 	@echo "  make bake EDITION=1|2|3|4   Build one edition (default: 1)"

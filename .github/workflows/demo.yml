@@ -1,0 +1,133 @@
+name: Demo recording
+
+# Records a scripted terminal demo of REAL Warble Linux ISOs:
+#   1. iso    : reusable real-iso.yml (mkarchiso + QEMU BIOS/UEFI boot test), so
+#               only an ISO that passed the boot smoke test gets recorded
+#   2. record : boots that ISO in QEMU with the serial console on stdio and runs
+#               scripts/demo/record.sh — `asciinema rec --headless -c 'expect -f
+#               demo.exp'` (human-like typing), boot squeezed + idle capped,
+#               then agg -> GIF and ffmpeg -> MP4 (H.264, yuv420p) for social posts.
+# Artifacts: demo-edition-N (.cast, .gif, .mp4). Copy the .cast/.gif you want
+# into assets/demo/ in a PR; the MP4 stays an artifact.
+#
+# Runs on workflow_dispatch, as a reusable workflow (workflow_call), and on PRs
+# that change the demo itself. Same script locally: `make demo ISO=...`.
+on:
+  workflow_dispatch:
+    inputs:
+      editions:
+        description: "Comma-separated editions (1=minimal 2=developer 3=cloud-native 4=full)"
+        type: string
+        default: "1,3"
+  workflow_call:
+    inputs:
+      editions:
+        description: "Comma-separated editions to record"
+        type: string
+        default: "1,3"
+      ref:
+        description: "Git ref to build (default: the triggering ref)"
+        type: string
+        default: ""
+  pull_request:
+    paths:
+      - "scripts/demo/**"
+      - ".github/workflows/demo.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned tool releases (x86_64 musl builds), verified by sha256 below.
+  ASCIINEMA_VERSION: v3.2.1
+  ASCIINEMA_SHA256: bec9781bc8f297a9d3d74ff60205599507f2abba1183578b8b2f22be4c999214
+  AGG_VERSION: v1.9.0
+  AGG_SHA256: ddcbf6ca044c8ac3a434dcb9ee89fb9e3be87209982b7c2adb55f782e8f0f390
+
+jobs:
+  iso:
+    name: iso edition ${{ matrix.edition }}
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: ${{ fromJSON(format('[{0}]', inputs.editions || '1,3')) }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/real-iso.yml
+    with:
+      edition: ${{ format('{0}', matrix.edition) }}
+      ref: ${{ inputs.ref || '' }}
+      artifact-name: demo-iso-${{ matrix.edition }}
+
+  record:
+    name: record demo edition ${{ matrix.edition }}
+    needs: iso
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: ${{ fromJSON(format('[{0}]', inputs.editions || '1,3')) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+
+      - name: Download boot-tested ISO
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: demo-iso-${{ matrix.edition }}
+          path: out
+
+      - name: Verify checksum
+        run: cd out && sha256sum -c SHA256SUMS-real-iso.txt
+
+      - name: Install QEMU, expect, ffmpeg, fonts; enable KVM
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86 expect ffmpeg fonts-jetbrains-mono >/dev/null
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+          ls -l /dev/kvm || true
+
+      - name: Install pinned asciinema + agg
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o "$HOME/.local/bin/asciinema" \
+            "https://github.com/asciinema/asciinema/releases/download/${ASCIINEMA_VERSION}/asciinema-x86_64-unknown-linux-musl"
+          curl -fsSL -o "$HOME/.local/bin/agg" \
+            "https://github.com/asciinema/agg/releases/download/${AGG_VERSION}/agg-x86_64-unknown-linux-musl"
+          printf '%s  %s\n' "$ASCIINEMA_SHA256" "$HOME/.local/bin/asciinema" "$AGG_SHA256" "$HOME/.local/bin/agg" | sha256sum -c -
+          chmod +x "$HOME/.local/bin/asciinema" "$HOME/.local/bin/agg"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Record + render (scripts/demo/record.sh)
+        timeout-minutes: 20
+        run: |
+          iso=$(find out -maxdepth 1 -name 'warble-linux-*.iso' | head -1)
+          scripts/demo/record.sh "$iso" demo
+          {
+            echo "### Demo: edition ${{ matrix.edition }}"
+            echo '| file | bytes |'; echo '|---|---|'
+            for f in demo/*; do echo "| $(basename "$f") | $(stat -c %s "$f") |"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload demo
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: demo-edition-${{ matrix.edition }}
+          path: demo/
+          if-no-files-found: error
+          retention-days: 30

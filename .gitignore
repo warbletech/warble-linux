@@ -26,3 +26,5 @@ Dockerfile.gcp
 /profile/airootfs/etc/warble-release
 !images/template.ovf
 __pycache__/
+/demo-out/
+/demo/

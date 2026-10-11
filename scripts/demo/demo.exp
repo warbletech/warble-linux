@@ -1,0 +1,108 @@
+#!/usr/bin/expect -f
+# Scripted Warble Linux session on the live ISO's serial console, recorded by
+# scripts/demo/record.sh (asciinema rec --headless -c 'expect -f demo.exp').
+#
+# Boots the ISO in QEMU with the serial console on stdio, logs in as root
+# (the live ISO has no root password) and types a short tour with human-like
+# timing. Only runs commands that exist in the booted edition.
+#
+# Env: WARBLE_DEMO_ISO (path), WARBLE_DEMO_EDITION (minimal|developer|cloud-native|full)
+#      WARBLE_DEMO_FAKE=1 spawns a local bash instead of QEMU (driver smoke test).
+
+set ed $env(WARBLE_DEMO_EDITION)
+set fake [expr {[info exists env(WARBLE_DEMO_FAKE)] && $env(WARBLE_DEMO_FAKE) ne ""}]
+set prompt {\]# $}
+log_user 1
+expr {srand(42)}
+
+if {$fake} {
+  set env(PS1) {[root@warble ~]# }
+  spawn -noecho bash --norc --noprofile -i
+} else {
+  set accel tcg
+  if {[file writable /dev/kvm]} { set accel kvm }
+  spawn -noecho qemu-system-x86_64 -accel $accel -m 2048 -smp 2 \
+    -cdrom $env(WARBLE_DEMO_ISO) -boot d -snapshot -nic user,model=virtio-net-pci \
+    -display none -monitor none -serial stdio
+}
+
+# Print whatever the guest has sent so far (non-blocking).
+proc drain {} {
+  expect -timeout 0 -re {.+} {} eof { exit 1 } timeout {}
+}
+# Wait ms milliseconds while still streaming guest output to the recording.
+proc pause {ms} {
+  set end [expr {[clock milliseconds] + $ms}]
+  while {[clock milliseconds] < $end} { after 40; drain }
+}
+# Type text one key at a time with human-ish jitter; the guest echoes it.
+proc type {text} {
+  foreach ch [split $text ""] {
+    send -- $ch
+    if {$ch eq " "} { set d [expr {110 + int(rand() * 140)}] } else { set d [expr {45 + int(rand() * 75)}] }
+    pause $d
+  }
+}
+# Type a command, press Enter, wait for the prompt, then let it sit.
+proc run {cmd {hold 2200}} {
+  global prompt
+  type $cmd
+  pause 350
+  send -- "\r"
+  set timeout 60
+  expect -re $prompt {} timeout { puts stderr "demo: no prompt after: $cmd"; exit 1 } eof { exit 1 }
+  pause $hold
+}
+
+if {!$fake} {
+  # Boot: skip the bootloader countdown, then wait for the serial getty.
+  set timeout 90
+  expect -re {Automatic boot|Press \[Tab\]|Boot in} { pause 800; send -- "\r" } timeout {}
+  set timeout 600
+  expect "warble login:" {} timeout { puts stderr "demo: no login prompt"; exit 1 } eof { exit 1 }
+  pause 1200
+  type "root"
+  send -- "\r"
+  set timeout 60
+  expect -re $prompt {} timeout { puts stderr "demo: no shell prompt"; exit 1 }
+  pause 4500
+} else {
+  expect -re $prompt
+  pause 500
+}
+
+run "cat /etc/warble-release" 2600
+run "grep PRETTY /etc/os-release" 1500
+
+switch -- $ed {
+  minimal {
+    run "git --version" 1200
+    run "python3 --version" 1500
+  }
+  developer {
+    run "go version" 1200
+    run "rustc --version && node --version" 1500
+  }
+  cloud-native {
+    run "kubectl version --client" 1500
+    run "helm version --short" 1200
+    run "docker --version" 1500
+  }
+  full {
+    run "go version && node --version" 1200
+    run "kubectl version --client" 1500
+  }
+}
+
+run "# disposable: the root filesystem is an overlay on RAM" 400
+run "echo 'try anything' > ~/scratch.txt && ls -l ~/scratch.txt" 1500
+run "findmnt -no SOURCE,FSTYPE /" 1500
+run "df -h /run/archiso/cowspace" 2500
+run "# firewall: inbound blocked by default (nftables)" 400
+run "nft list chain inet filter input | head -6" 3500
+run "# reboot = clean slate.  github.com/warbletech/warble-linux" 4000
+
+if {!$fake} { exec kill [exp_pid] }
+catch { close }
+catch { wait }
+exit 0

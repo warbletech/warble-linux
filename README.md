@@ -133,6 +133,15 @@ VBoxManage controlvm warble-sbx poweroff && VBoxManage unregistervm warble-sbx -
 The ISO denies all inbound traffic. The Vagrant/OVA disk allows only inbound SSH (tcp/22).
 The WSL image has no firewall, because WSL2 manages the network.
 
+## Demo
+
+![Warble Linux minimal edition booting to a serial console: songbird welcome, release info, tools, RAM-backed root filesystem and inbound-blocked firewall](assets/demo/warble-linux-minimal-demo.gif)
+
+This is a real minimal ISO from CI, booted in QEMU on its serial console: login, welcome, release info, tools, the RAM-backed root filesystem and the firewall.
+There is also a [cloud-native recording](assets/demo/warble-linux-cloud-native-demo.gif).
+Raw recordings (`.cast`) are in [assets/demo/](assets/demo/); play them with `asciinema play`.
+To re-record, run the **Demo recording** workflow or `make demo ISO=out/<iso>` (see [docs/local-testing.md](docs/local-testing.md#recording-a-demo)).
+
 ## Look and feel
 
 Each edition boots to an Openbox desktop with its own wallpaper and bird. Minimal uses Warble, developer Starling, cloud-native Heron and full Murmuration.

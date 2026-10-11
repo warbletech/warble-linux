@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Terminal demo recording. The **Demo recording** workflow and `make demo` boot a boot-tested ISO, record a scripted serial-console tour with asciinema, and render a GIF and MP4. Recordings of minimal and cloud-native are in `assets/demo/`.
+- Brand assets, per-edition wallpapers and mascots (Warble, Starling, Heron, Murmuration), a new MOTD, and CI screenshots of the MOTD and desktop.
+
 ### Changed
 - Editions are VM-first and much smaller: `linux-firmware`, GRUB, the PXE hooks and their nfs/nbd packages are dropped, and docs, man pages and translations are no longer extracted. Sizes: minimal 766 MiB, developer 1035 MiB, cloud-native 867 MiB, full 1135 MiB.
 - CI fails if an ISO is 1.9 GiB or larger.
