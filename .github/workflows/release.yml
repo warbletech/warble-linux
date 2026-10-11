@@ -103,9 +103,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Editions published as real, boot-tested ISOs. Add an edition only after
-        # it builds, stays < 2 GiB and boots in CI (see docs/releases.md).
-        edition: ["1"]
+        # Every edition is built and boot-tested; publish uploads only the
+        # editions whose build AND both boot tests passed (see docs/releases.md).
+        edition: ["1", "2", "3", "4"]
     permissions:
       contents: read
       id-token: write
@@ -120,6 +120,8 @@ jobs:
   publish:
     name: GitHub Release ${{ needs.prepare.outputs.tag }}
     needs: [prepare, real]
+    # Run even if some editions failed: only passing editions are published.
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write       # create the GitHub Release
@@ -132,11 +134,18 @@ jobs:
           ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
 
-      - name: Download boot-tested ISOs
+      - name: Download built ISOs
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dl
           pattern: release-iso-*
+
+      - name: Download boot-success markers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ok
+          pattern: bootok-release-iso-*
+          merge-multiple: true
 
       - name: Verify (real only, < 2 GiB, checksums) and assemble assets
         run: |
@@ -146,8 +155,15 @@ jobs:
           # locate each edition's directory via its MANIFEST.
           mapfile -t mans < <(find dl -name 'MANIFEST-*.txt' | sort)
           (( ${#mans[@]} > 0 )) || { echo "::error::no MANIFEST found in downloaded artifacts"; find dl; exit 1; }
+          : > skipped.txt
           for m in "${mans[@]}"; do
             d=$(dirname "$m")
+            ed=$(sed -n 's/^edition=.*(\([0-9]\)).*/\1/p' "$m")
+            if [[ ! -f "ok/boot-ok-${ed}-bios.txt" || ! -f "ok/boot-ok-${ed}-uefi.txt" ]]; then
+              echo "::warning::edition ${ed}: boot test did not pass on BIOS and UEFI — not publishing"
+              echo "$ed" >> skipped.txt
+              continue
+            fi
             (cd "$d" && sha256sum -c SHA256SUMS-real-iso.txt)
             man=$(find "$d" -maxdepth 1 -name 'MANIFEST-*.txt' | head -1)
             iso=$(find "$d" -maxdepth 1 -name 'warble-linux-*.iso' | head -1)
@@ -157,7 +173,13 @@ jobs:
             (( size < 2 * 1024 * 1024 * 1024 )) || { echo "::error::$(basename "$iso") is $size bytes (GitHub limit 2 GiB)"; exit 1; }
             echo "$(basename "$iso"): $size bytes"
             cp "$iso" "$man" release-assets/
+            echo "$ed" >> published.txt
           done
+          touch published.txt
+          for e in 1 2 3 4; do
+            grep -qx "$e" published.txt || grep -qx "$e" skipped.txt || echo "$e" >> skipped.txt   # build failed: no artifact
+          done
+          compgen -G 'release-assets/*.iso' >/dev/null || { echo "::error::no edition passed build + boot — nothing to publish"; exit 1; }
           (cd release-assets && sha256sum -- *.iso MANIFEST-*.txt > SHA256SUMS.txt && cat SHA256SUMS.txt)
           ls -la release-assets/
 
@@ -187,7 +209,10 @@ jobs:
               echo "| ${e} | \`${b}\` ($(( $(stat -c%s "$f") / 1024 / 1024 )) MiB) |"
             done
             echo ""
-            echo "Only the editions listed above are published as real ISOs. WSL / OVF / Vagrant outputs are still stubs and are **not** included."
+            echo "Only editions that built **and** booted on BIOS and UEFI are published."
+            if [[ -s skipped.txt ]]; then
+              echo "Not published this time (failed build or boot): edition(s) $(sort -u skipped.txt | tr '\n' ' ')"
+            fi
             echo ""
             echo "### Verify"
             echo '```bash'
