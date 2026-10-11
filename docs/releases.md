@@ -26,23 +26,31 @@ Triggers: push/`main`, pull_request, workflow_dispatch.
 
 ### Release — `.github/workflows/release.yml`
 
+Publishes **only real, boot-tested ISOs**. Flow: resolve version → for each
+published edition call `real-iso.yml` (mkarchiso + QEMU BIOS/UEFI boot test) →
+verify `mock=no`, size < 2 GiB and checksums → attest provenance → upload
+ISO + MANIFEST + `SHA256SUMS.txt` to the release (Latest for stable tags).
+WSL / OVF / Vagrant stubs are never uploaded.
+
+Real editions published today: **1 (minimal)**. Add more to the `real` job
+matrix only after they build, stay under 2 GiB and boot in CI.
+
 Triggers:
 
-- Push tag matching `v*.*.*`
-- Manual **workflow_dispatch** with:
-  - `bump`: `none` | `patch` | `minor` | `major`
-  - `version`: exact `X.Y.Z` (optional)
-  - `prerelease`: boolean
-
-Dispatch flow bumps `VERSION`, commits, tags `vX.Y.Z`, bakes all editions,
-tests, publishes a GitHub Release (latest).
+- Push tag `vX.Y.Z` (must equal `VERSION`) → stable release, marked Latest.
+  `vX.Y.Z-rc.N` → prerelease.
+- `workflow_dispatch` with `dry_run=true` (from any branch) → same build and
+  boot test, uploads to a **draft** release `dryrun-<run_id>`; nothing is
+  tagged. Delete the draft afterwards.
 
 ```bash
-# CLI
-gh workflow run release.yml -f bump=patch
-gh workflow run release.yml -f version=1.0.0
-# or local tag
-git tag v0.2.0 && git push origin v0.2.0
+# 1. bump VERSION in a PR (main is protected), merge it
+make bump-minor            # 0.2.0 -> 0.3.0, commit + PR
+# 2. tag the merged commit on main
+git checkout main && git pull
+git tag -a v0.3.0 -m "Warble Linux v0.3.0" && git push origin v0.3.0
+# dry run from a branch
+gh workflow run release.yml --ref <branch> -f dry_run=true
 ```
 
 ### Real ISO — `.github/workflows/real-iso.yml`
@@ -55,9 +63,9 @@ provenance on `main`.
 
 ### Mock labeling
 
-`publish.yml` / `release.yml` still bake on Ubuntu without `mkarchiso`. When
-any MANIFEST says `mock=yes`, the release title is suffixed **(MOCK, not
-bootable)**, it is marked prerelease, and it is never set as Latest.
+`publish.yml` (nightly) still bakes mock artifacts on Ubuntu without
+`mkarchiso`; those prereleases are titled **(MOCK artifacts, not bootable)**
+and are never set as Latest. `release.yml` never publishes mock artifacts.
 
 ## Artifact names
 
