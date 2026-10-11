@@ -1,0 +1,11 @@
+# Embedded box Vagrantfile (Warble Linux, libvirt provider)
+Vagrant.configure("2") do |config|
+  config.ssh.username = "vagrant"
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+  config.vm.provider :libvirt do |lv|
+    lv.driver = "kvm"
+    lv.disk_bus = "virtio"
+    lv.memory = 2048
+    lv.cpus = 2
+  end
+end
