@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- Editions are VM-first and much smaller: `linux-firmware`, GRUB, the PXE hooks and their nfs/nbd packages are dropped, and docs, man pages and translations are no longer extracted. Sizes: minimal 766 MiB, developer 1035 MiB, cloud-native 867 MiB, full 1135 MiB.
+- CI fails if an ISO is 1.9 GiB or larger.
+- The release workflow builds and boot-tests all four editions and publishes every edition that passes.
+
+## [Unreleased]
+
 ## [0.3.0] — 2026-10-11
 
 First release with **real, boot-tested ISOs** (edition 1, minimal).
