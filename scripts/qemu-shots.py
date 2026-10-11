@@ -9,8 +9,9 @@
 2. Dismisses the one-time welcome dialogs on tty1 (QEMU `sendkey`) and takes a
    `screendump` of the console (console-tty1.png): the MOTD on tty1.
 3. If the edition has a desktop (startx + openbox), starts X on vt7 and takes
-   desktop screenshots: desktop-wallpaper.png (early, wallpaper visible) and
-   desktop-autostart.png (after autostart, e.g. Firefox).
+   desktop screenshots: desktop-wallpaper.png (WARBLE_NO_BROWSER=1, so the
+   wallpaper is visible) and desktop-firefox.png (after launching Firefox, as
+   autostart normally does).
 The VM runs with -snapshot and is killed afterwards. PPM screendumps become PNG
 when Pillow is installed (otherwise .ppm is kept).
 """
@@ -169,14 +170,17 @@ def main():
             mk2 = s.mark(); s.send(c + "\r"); s.wait(r"# $", wait, mk2); return s.since(mk2)
         has_x = "yes" in run("command -v startx >/dev/null && command -v openbox >/dev/null && echo y''es")
         if has_x:
-            run("(startx -- :0 vt7 > /tmp/xorg-start.log 2>&1 &)")
-            time.sleep(12)
+            # desktop first without the browser, so the wallpaper is visible
+            run("(WARBLE_NO_BROWSER=1 startx -- :0 vt7 > /tmp/xorg-start.log 2>&1 &)")
+            time.sleep(15)
             m.cmd(f"screendump {tmp}/desk1.ppm"); time.sleep(1)
             shots.append(os.path.basename(to_png(f"{tmp}/desk1.ppm", os.path.join(out, "desktop-wallpaper.png"))))
+            print(run("tail -n 5 /tmp/xorg-start.log; pgrep -a openbox | head -2", 15))
+            # then what autostart normally adds: Firefox
+            run("(DISPLAY=:0 firefox https://duckduckgo.com > /dev/null 2>&1 &)")
             time.sleep(30)
             m.cmd(f"screendump {tmp}/desk2.ppm"); time.sleep(1)
-            shots.append(os.path.basename(to_png(f"{tmp}/desk2.ppm", os.path.join(out, "desktop-autostart.png"))))
-            print(run("tail -n 5 /tmp/xorg-start.log; pgrep -a feh; pgrep -a openbox | head -2", 15))
+            shots.append(os.path.basename(to_png(f"{tmp}/desk2.ppm", os.path.join(out, "desktop-firefox.png"))))
         open(os.path.join(out, "serial.log"), "w").write(s.text())
     finally:
         q.terminate()
