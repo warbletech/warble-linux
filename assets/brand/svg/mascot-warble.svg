@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
+<!-- Warble Linux mascot: Warble (original flat art, Warble Cloud) -->
+<polygon points="430.0,640.0 200.0,770.0 255.0,805.0 480.0,690.0" fill="#102f5e"/>
+<polygon points="560.0,320.0 600.0,435.0 470.0,425.0" fill="#12356a"/>
+<polygon points="470.0,425.0 600.0,435.0 620.0,645.0 430.0,640.0" fill="#102f5e"/>
+<polygon points="600.0,435.0 690.0,410.0 705.0,520.0 620.0,645.0" fill="#99d0ea"/>
+<polygon points="690.0,410.0 705.0,520.0 650.0,520.0" fill="#b6dbed"/>
+<polygon points="560.0,320.0 650.0,282.0 735.0,335.0 690.0,410.0 600.0,435.0" fill="#10a6b4"/>
+<polygon points="560.0,320.0 650.0,282.0 610.0,345.0" fill="#4fc3f7"/>
+<polygon points="718.0,326.0 800.0,352.0 712.0,375.0" fill="#fbbf24"/>
+<polygon points="545.0,425.0 290.0,560.0 520.0,610.0" fill="#12356a"/>
+<polygon points="545.0,425.0 370.0,470.0 290.0,560.0" fill="#10a6b4"/>
+<polygon points="545.0,425.0 520.0,610.0 600.0,520.0" fill="#4fc3f7" fill-opacity="0.85"/>
+<circle cx="662" cy="342" r="15" fill="#ffffff"/><circle cx="666" cy="342" r="8" fill="#0a0a0f"/>
+<path d="M575 645 L568 705 M615 645 L628 705" stroke="#102f5e" stroke-width="12" stroke-linecap="round"/>
+<path d="M470 712 L760 712" stroke="#475569" stroke-width="14" stroke-linecap="round"/>
+<path d="M 829 319 A 60 60 0 0 1 829 385" fill="none" stroke="#10a6b4" stroke-width="14" stroke-linecap="round" opacity="0.90"/>
+<path d="M 836 294 A 105 105 0 0 1 836 410" fill="none" stroke="#6c63ff" stroke-width="14" stroke-linecap="round" opacity="0.70"/>
+<path d="M 842 270 A 150 150 0 0 1 842 434" fill="none" stroke="#10a6b4" stroke-width="14" stroke-linecap="round" opacity="0.50"/>
+</svg>

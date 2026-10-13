@@ -53,6 +53,19 @@ Real releases are only created by pushing a `vX.Y.Z` tag. That runs `release.yml
 
 Size guard: `test.sh iso-verify` and `build-images.sh` fail at 1.9 GiB or more (`MAX_ISO_BYTES` / `MAX_ASSET_BYTES`). GitHub's per-asset limit is 2 GiB.
 
+## Recording a demo
+
+`make demo ISO=out/warble-linux-minimal-<version>.iso` (or `scripts/demo/record.sh <iso> [dir]`) boots the ISO in QEMU with the serial console on stdio.
+`expect` (`scripts/demo/demo.exp`) logs in and types a short tour, under `asciinema rec --headless`.
+The tour only runs commands that exist in the booted edition.
+`scripts/demo/cast-trim.py` squeezes the boot log to about 7 s, caps idle gaps at 2 s and drops invisible OSC escapes.
+`agg` renders a GIF and `ffmpeg` makes an H.264/yuv420p MP4 for social posts.
+
+Needs: qemu (KVM recommended), expect, python3, ffmpeg, asciinema 3.x (for `--headless`) and agg.
+CI pins asciinema v3.2.1 and agg v1.9.0 by sha256 in `.github/workflows/demo.yml`.
+Point `ASCIINEMA=` and `AGG=` at other binaries if needed.
+Smoke-test the driver without QEMU: `WARBLE_DEMO_FAKE=1 WARBLE_DEMO_EDITION=minimal scripts/demo/record.sh /dev/null /tmp/demo`.
+
 ## Disposable sandboxes: create → use → destroy
 
 Download the assets from a release, or use `out/`, and verify them first with `sha256sum -c SHA256SUMS.txt --ignore-missing`.
