@@ -3,7 +3,7 @@
 #
 # Pinned to a dated official archlinux image for reproducible tooling; bump the
 # tag deliberately (https://hub.docker.com/_/archlinux/tags?name=base-).
-FROM archlinux:base-20261004.0.606936
+FROM archlinux:base-20261011.0.609700
 
 # archiso: mkarchiso; grub: host-side grub-install/grub-mkstandalone for grub
 # boot modes; mtools/dosfstools/libisoburn/squashfs-tools: EFI image, ISO and
