@@ -7,6 +7,6 @@ dir=/usr/share/backgrounds/warble
 variant=minimal
 [ -r /etc/warble-release ] && variant=$(sed -n 's/^VARIANT=//p' /etc/warble-release)
 theme=${WARBLE_THEME:-dark}
-img=${1:-$dir/warble-linux-${variant}-${theme}-2560x1440.png}
-[ -f "$img" ] || img=$dir/warble-linux-minimal-dark-2560x1440.png
+img=${1:-$dir/warble-linux-minimal-${theme}-1920x1080.png}
+[ -f "$img" ] || img=$dir/warble-linux-minimal-dark-1920x1080.png
 exec feh --no-fehbg --bg-fill "$img"
