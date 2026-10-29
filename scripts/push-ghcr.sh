@@ -3,6 +3,10 @@
 # One docker-import layer timed out on the blob upload.
 set -euo pipefail
 
+if [[ "$(id -u)" -ne 0 ]]; then
+  exec sudo -E bash "$0" "$@"
+fi
+
 tar_path="${1:?rootfs tar.gz}"
 ver="${2:?version}"
 img="${3:-ghcr.io/warbletech/warble-linux}"
