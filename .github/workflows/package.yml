@@ -69,12 +69,14 @@ jobs:
     name: GHCR
     needs: test
     runs-on: warble-ci
+    timeout-minutes: 60
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: wsl-minimal
           path: out
-      - name: Push ghcr.io image
+      - name: Push ghcr.io image in small layers
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -82,9 +84,6 @@ jobs:
           tar=$(ls out/warble-linux-wsl2-*.tar.gz)
           ver=$(basename "$tar" | sed -n 's/.*-\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')
           test -n "$ver"
-          img="ghcr.io/warbletech/warble-linux"
-          docker import "$tar" "$img:$ver"
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          docker tag "$img:$ver" "$img:0"
-          docker push "$img:$ver"
-          docker push "$img:0"
+          chmod +x scripts/push-ghcr.sh
+          scripts/push-ghcr.sh "$tar" "$ver" ghcr.io/warbletech/warble-linux
