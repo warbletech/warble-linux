@@ -96,6 +96,8 @@ jobs:
           merge-multiple: true
 
       - name: Run artifact tests
+        env:
+          EDITIONS: minimal
         run: |
           chmod +x scripts/test-artifacts.sh
           ls -la out/
