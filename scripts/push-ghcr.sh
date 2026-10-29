@@ -16,6 +16,11 @@ root="$(mktemp -d)"
 trap 'rm -rf "$root"' EXIT
 mkdir -p "$root/rootfs" "$root/layers"
 tar -xzf "$tar_path" -C "$root/rootfs"
+lic="${LICENSE_FILE:-LICENSE}"
+if [[ -f "$lic" ]]; then
+  mkdir -p "$root/rootfs/usr/share/licenses/warble-linux"
+  cp "$lic" "$root/rootfs/usr/share/licenses/warble-linux/LICENSE"
+fi
 
 python3 - "$root/rootfs" "$root/layers" "$budget" <<'PY'
 import os, sys, tarfile
@@ -54,6 +59,10 @@ PY
   for layer in "$root"/layers/layer-*.tar; do
     echo "ADD $(basename "$layer") /"
   done
+  echo 'LABEL org.opencontainers.image.licenses="GPL-2.0-only"'
+  echo 'LABEL org.opencontainers.image.title="warble-linux"'
+  echo 'LABEL org.opencontainers.image.source="https://github.com/warbletech/warble-linux"'
+  echo 'LABEL org.opencontainers.image.vendor="Warble"'
 } > "$root/layers/Dockerfile"
 
 export DOCKER_CLIENT_TIMEOUT=900

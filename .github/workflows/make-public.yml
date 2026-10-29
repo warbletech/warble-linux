@@ -1,0 +1,21 @@
+name: Make packages public
+
+on:
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  public:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Set warble-linux public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            /orgs/warbletech/packages/container/warble-linux/visibility \
+            -f visibility=public
