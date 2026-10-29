@@ -15,7 +15,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          gh api "/orgs/warbletech/packages?package_type=container&per_page=100" \
+            --jq '.[] | {name,visibility,url}'
           gh api --method PUT \
             -H "Accept: application/vnd.github+json" \
-            /orgs/warbletech/packages/container/warble-linux/visibility \
-            -f visibility=public
+            /orgs/warbletech/packages/container/warble-linux \
+            -f visibility=public || true
