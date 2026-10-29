@@ -1,0 +1,3 @@
+image:
+  repository: container.registry.frakma.io/warbletech/warble-linux
+  tag: "0.4.0"

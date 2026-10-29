@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: warble-linux
+spec:
+  containers:
+    - name: warble
+      image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+      command: ["bash", "-lc", "cat /etc/warble-release"]

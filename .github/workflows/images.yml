@@ -21,6 +21,9 @@ on:
       - "profile/pacman.conf"
       - "profile/airootfs/etc/nftables.conf"
       - ".github/workflows/images.yml"
+      - "scripts/test-windows.ps1"
+      - "scripts/test-k8s.sh"
+      - "charts/**"
   workflow_dispatch:
     inputs:
       edition:
@@ -198,3 +201,72 @@ jobs:
           path: logs/*.log
           if-no-files-found: ignore
           retention-days: 7
+
+  windows:
+    name: Windows tar check
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: images-${{ env.PREFIX }}-${{ env.EDITION }}
+          path: out
+      - name: List required paths with tar.exe
+        shell: pwsh
+        run: |
+          $tar = Get-ChildItem out\warble-linux-wsl2-*.tar.gz | Select-Object -First 1
+          ./scripts/test-windows.ps1 -Tar $tar.FullName
+
+  k8s:
+    name: Kubernetes container check
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: images-${{ env.PREFIX }}-${{ env.EDITION }}
+          path: out
+      - name: Install kubectl
+        run: |
+          curl -fsSL -o kubectl "https://dl.k8s.io/release/v1.31.4/bin/linux/amd64/kubectl"
+          sudo install -m 0755 kubectl /usr/local/bin/kubectl
+      - name: Import, run, and dry-run the pod
+        run: |
+          chmod +x scripts/test-k8s.sh
+          ver=$(tr -d '[:space:]' < VERSION)
+          scripts/test-k8s.sh "$(ls out/warble-linux-wsl2-*.tar.gz)" "$ver"
+
+  publish:
+    name: Publish container and Helm chart
+    needs: [wsl, vm, windows, k8s]
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: images-${{ env.PREFIX }}-${{ env.EDITION }}
+          path: out
+      - name: Push image and chart to ghcr.io
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ver=$(tr -d '[:space:]' < VERSION)
+          tar=$(ls out/warble-linux-wsl2-*.tar.gz)
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker import "$tar" "ghcr.io/warbletech/warble-linux:${ver}"
+          docker push "ghcr.io/warbletech/warble-linux:${ver}"
+          curl -fsSL -o /tmp/helm.tgz https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz
+          tar -C /tmp -xzf /tmp/helm.tgz
+          sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+          helm package charts/warble-linux --version "$ver" --app-version "$ver"
+          helm push "warble-linux-${ver}.tgz" oci://ghcr.io/warbletech/charts
+
