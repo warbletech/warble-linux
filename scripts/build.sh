@@ -4,7 +4,8 @@
 #   scripts/build.sh deps                 install build tools (Arch, root)
 #   scripts/build.sh iso    <edition>     real ISO (mkarchiso, REQUIRE_REAL=1) -> out/
 #   scripts/build.sh images <edition>     WSL rootfs + Vagrant box + OVA     -> out/
-#   scripts/build.sh all    <edition>     both
+#   scripts/build.sh vm     <edition>     disk (Vagrant box + OVA) plus standalone qcow2/raw -> out/
+#   scripts/build.sh all    <edition>     iso + images
 #
 # Add --docker to run inside the pinned privileged Arch container (any Linux
 # host with Docker; no Arch install needed), e.g.
@@ -49,7 +50,7 @@ case "$WHAT" in
     command -v pacman >/dev/null || die "deps: Arch Linux only (or use --docker)"
     pacman -Syu --noconfirm --needed "${DEPS[@]}"
     exit 0 ;;
-  iso|images|all) ;;
+  iso|images|all|vm) ;;
   *) usage 1 ;;
 esac
 [[ "$EDITION" =~ ^[1-4]$ ]] || die "edition must be 1-4"
@@ -69,5 +70,10 @@ if [[ "$WHAT" == iso || "$WHAT" == all ]]; then
 fi
 if [[ "$WHAT" == images || "$WHAT" == all ]]; then
   WORK_DIR=/tmp/warble-images "$ROOT_DIR/scripts/build-images.sh" "$EDITION" all "$OUT_DIR"
+fi
+if [[ "$WHAT" == vm ]]; then
+  # Disk only (no WSL tarball), then export standalone qcow2 + raw from the box.
+  WORK_DIR="${WORK_DIR:-/tmp/warble-images}" "$ROOT_DIR/scripts/build-images.sh" "$EDITION" disk "$OUT_DIR"
+  "$ROOT_DIR/scripts/export-vm-formats.sh" "$OUT_DIR"
 fi
 ls -la "$OUT_DIR"

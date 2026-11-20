@@ -55,6 +55,9 @@ clean:
 
 lint:
 	@bash -n scripts/make-and-bake.sh
+	@bash -n scripts/build.sh
+	@bash -n scripts/export-vm-formats.sh
+	@bash -n scripts/test-export-vm-formats.sh
 	@bash -n scripts/build-all-editions.sh
 	@bash -n scripts/push-to-gcp.sh
 	@bash -n scripts/test-artifacts.sh
