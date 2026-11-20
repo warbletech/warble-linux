@@ -4,7 +4,7 @@ CI and your desktop run **the same three scripts**:
 
 | Stage | Script | `make` | CI |
 |-------|--------|--------|----|
-| build | `scripts/build.sh iso\|images\|all <edition> [--docker]` | `make build EDITION=1 [WHAT=iso\|images\|all] [DOCKER=1]` | `real-iso.yml` / `images.yml` build jobs (privileged Arch container) |
+| build | `scripts/build.sh iso\|images\|vm\|all <edition> [--docker]` | `make build EDITION=1 [WHAT=iso\|images\|vm\|all] [DOCKER=1]` | `real-iso.yml` / `images.yml` / `vm-image-matrix.yml` (full `vm` build is workflow_dispatch) |
 | test | `scripts/test.sh iso-verify\|iso\|wsl\|vm\|ova\|all …` | `make test` | `real-iso.yml` boot jobs, `images.yml` wsl/vm jobs |
 | publish | `scripts/publish.sh [--draft-release]` | `make publish [DRAFT=1]` | `release.yml` publish job |
 
@@ -41,6 +41,12 @@ scripts/test.sh iso  out/warble-linux-minimal-*.iso uefi
 scripts/test.sh wsl  out/warble-linux-wsl2-minimal-*.tar.gz
 scripts/test.sh vm   out/warble-linux-minimal-*-libvirt.box bios
 scripts/test.sh ova  out/warble-linux-minimal-*.ova
+
+# Standalone qcow2 + raw from an already-built libvirt box (no root):
+#   sudo scripts/build.sh vm 1          # or: scripts/build.sh vm 1 --docker
+#   scripts/export-vm-formats.sh out
+# Offline fixture for the exporter:
+#   scripts/test-export-vm-formats.sh
 
 # 3. publish: dry run (default) assembles out/release-assets/ + out/release-body.md
 make publish

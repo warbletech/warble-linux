@@ -1,0 +1,4 @@
+# Custom org runner used by images.yml, this workflow, and others.
+self-hosted-runner:
+  labels:
+    - warble-ci
